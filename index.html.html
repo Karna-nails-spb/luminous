@@ -1,0 +1,847 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>karna.nails — Онлайн-запись и CRM</title>
+  <link href="https://fonts.googleapis.com/css2?family=Marck+Script&family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-pink: #fdf2f4;
+      --card-bg: #ffffff;
+      --accent: #b86b77;
+      --accent-dark: #6e353e;
+      --accent-light: #f6dde1;
+      --gold: #c89d7c;
+      --text: #4a2c31;
+      --muted: #9a7b80;
+      --green: #2e7d32;
+      --danger: #c62828;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Montserrat', sans-serif; }
+    body { background: var(--bg-pink); color: var(--text); padding-bottom: 80px; }
+    .script-font { font-family: 'Marck Script', cursive; }
+
+    /* Шапка */
+    header {
+      background: linear-gradient(135deg, #fbe4e8 0%, #f5d0d6 100%);
+      padding: 18px 16px;
+      text-align: center;
+      position: relative;
+      border-bottom: 2px solid var(--gold);
+      box-shadow: 0 2px 10px rgba(184,107,119,0.12);
+    }
+    header h1 { font-size: 32px; color: var(--accent-dark); font-weight: normal; line-height: 1.1; }
+    header p { font-size: 12px; color: var(--muted); margin-top: 4px; font-weight: 500; }
+    .lock-btn {
+      position: absolute; right: 14px; top: 18px;
+      background: rgba(255,255,255,0.7); border: 1px solid var(--gold);
+      border-radius: 50%; width: 38px; height: 38px;
+      font-size: 16px; cursor: pointer; display: flex; align-items: center; justify-content: center;
+    }
+    .mode-badge {
+      display: inline-block; background: var(--accent-dark); color: #fff;
+      font-size: 10px; padding: 3px 8px; border-radius: 10px; margin-top: 4px; text-transform: uppercase;
+    }
+
+    .container { max-width: 520px; margin: 0 auto; padding: 14px; }
+
+    /* Карточки */
+    .card {
+      background: var(--card-bg);
+      border: 1px solid #eccfd4;
+      border-radius: 16px;
+      padding: 16px;
+      margin-bottom: 14px;
+      box-shadow: 0 4px 14px rgba(110,53,62,0.05);
+    }
+    .card-title {
+      font-size: 24px; color: var(--accent-dark); margin-bottom: 12px;
+      text-align: center; border-bottom: 1px dashed #eccfd4; padding-bottom: 6px;
+    }
+
+    /* Услуги (Витрина клиента) */
+    .service-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .service-item {
+      border: 1.5px solid #eccfd4; border-radius: 12px; padding: 12px 10px;
+      text-align: center; cursor: pointer; transition: 0.2s; background: #fffafb;
+      position: relative;
+    }
+    .service-item.selected {
+      border-color: var(--accent-dark); background: var(--accent-light);
+      box-shadow: 0 2px 8px rgba(184,107,119,0.25);
+    }
+    .service-name { font-size: 13px; font-weight: 600; margin-bottom: 6px; color: var(--text); }
+    .service-price { font-size: 15px; font-weight: 700; color: var(--accent-dark); }
+    .service-dur { font-size: 10px; color: var(--muted); margin-top: 2px; }
+
+    /* Слоты времени */
+    .slots-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 10px; }
+    .slot-btn {
+      padding: 10px 4px; border-radius: 10px; border: 1px solid var(--gold);
+      background: #fff; color: var(--text); font-weight: 600; font-size: 13px;
+      cursor: pointer; text-align: center;
+    }
+    .slot-btn.selected { background: var(--accent); color: #fff; border-color: var(--accent-dark); }
+    .slot-btn:disabled { background: #eee; color: #aaa; border-color: #ddd; cursor: not-allowed; text-decoration: line-through; }
+
+    /* Щиты лояльности */
+    .shields-grid {
+      display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px;
+      margin: 12px 0; padding: 10px; background: #fdf6f7; border-radius: 12px; border: 1px solid #f0d5da;
+    }
+    .shield {
+      aspect-ratio: 1 / 1.15;
+      border: 2px solid var(--gold);
+      border-radius: 6px 6px 50% 50%;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      font-size: 11px; font-weight: 700; color: var(--accent-dark);
+      background: #fff; position: relative; text-align: center; padding: 2px;
+    }
+    .shield.done {
+      background: linear-gradient(135deg, var(--accent) 0%, var(--accent-dark) 100%);
+      color: #fff; border-color: var(--accent-dark);
+    }
+    .shield.next {
+      border: 2px dashed var(--accent-dark);
+      background: #fff0f3; animation: pulse 1.5s infinite;
+    }
+    @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.05); } 100% { transform: scale(1); } }
+
+    /* Формы и кнопки */
+    input, select {
+      width: 100%; padding: 11px 12px; border: 1px solid #dfb8bf;
+      border-radius: 10px; font-size: 14px; margin-bottom: 10px; background: #fff; color: var(--text);
+    }
+    label { font-size: 12px; font-weight: 600; color: var(--muted); display: block; margin-bottom: 4px; }
+    .btn {
+      width: 100%; padding: 13px; border: none; border-radius: 12px;
+      background: linear-gradient(135deg, var(--accent) 0%, var(--accent-dark) 100%);
+      color: #fff; font-size: 15px; font-weight: 600; cursor: pointer;
+      box-shadow: 0 4px 10px rgba(110,53,62,0.2);
+    }
+    .btn-outline {
+      background: #fff; color: var(--accent-dark); border: 1.5px solid var(--accent);
+      box-shadow: none; padding: 8px 12px; font-size: 12px; width: auto;
+    }
+    .btn-sm { padding: 6px 10px; font-size: 11px; border-radius: 8px; width: auto; }
+
+    /* Навигация админа */
+    .admin-nav {
+      position: fixed; bottom: 0; left: 0; right: 0;
+      background: #fff; border-top: 1px solid #eccfd4;
+      display: flex; justify-content: space-around; padding: 8px 0; z-index: 100;
+    }
+    .nav-tab {
+      background: none; border: none; color: var(--muted); font-size: 11px;
+      font-weight: 600; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 3px;
+    }
+    .nav-tab.active { color: var(--accent-dark); }
+
+    /* Метрики и списки */
+    .stat-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
+    .stat-box { background: #fdf6f7; padding: 12px; border-radius: 12px; border: 1px solid #f0d5da; text-align: center; }
+    .stat-val { font-size: 18px; font-weight: 700; color: var(--accent-dark); margin-top: 4px; }
+    .appt-item {
+      border-left: 4px solid var(--accent); background: #fffafb;
+      padding: 12px; border-radius: 10px; margin-bottom: 10px; border: 1px solid #f0d5da; border-left-width: 4px;
+    }
+    .appt-item.completed { border-left-color: var(--green); background: #f4fbf5; }
+    .badge { padding: 3px 7px; border-radius: 6px; font-size: 10px; font-weight: 700; }
+    .badge-bonus { background: #ffe0e6; color: var(--accent-dark); }
+    .badge-profit { background: #e8f5e9; color: var(--green); }
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1 class="script-font">karna.nails</h1>
+  <p>Студия маникюра • м. Сенная площадь</p>
+  <div id="adminBadge" class="mode-badge hidden">Режим Мастера (Админ)</div>
+  <button class="lock-btn" onclick="toggleAdminMode()" title="Вход для мастера">🔒</button>
+</header>
+
+<div class="container">
+
+  <!-- ==================== РЕЖИМ КЛИЕНТА (ОНЛАЙН-ЗАПИСЬ) ==================== -->
+  <div id="clientView">
+    
+    <!-- Шаг 1: Проверка карты лояльности по телефону -->
+    <div class="card">
+      <div class="card-title script-font">Ваша карта лояльности</div>
+      <label>Введите телефон, чтобы проверить свои щиты и скидку:</label>
+      <input type="tel" id="clientPhoneCheck" placeholder="+7 (999) 000-00-00" oninput="renderClientLoyalty()">
+      <div id="clientLoyaltyStatus" style="font-size:12px; text-align:center; color:var(--accent-dark); font-weight:600; margin-bottom:6px;">
+        Введите номер — на 3-й визит скидка -10%!
+      </div>
+      <div class="shields-grid" id="clientShieldsGrid"></div>
+    </div>
+
+    <!-- Шаг 2: Выбор услуг -->
+    <div class="card">
+      <div class="card-title script-font">1. Выберите услуги</div>
+      <div class="service-grid" id="clientServicesGrid"></div>
+    </div>
+
+    <!-- Шаг 3: Выбор даты и свободного времени -->
+    <div class="card">
+      <div class="card-title script-font">2. Дата и свободное время</div>
+      <label>Выберите дату визита:</label>
+      <input type="date" id="clientDate" onchange="renderClientSlots()">
+      <label>Свободные окошки:</label>
+      <div class="slots-grid" id="clientSlotsGrid"></div>
+    </div>
+
+    <!-- Шаг 4: Оформление -->
+    <div class="card">
+      <div class="card-title script-font">3. Подтверждение записи</div>
+      <label>Ваше имя:</label>
+      <input type="text" id="clientName" placeholder="Например, Анна">
+      <label>Комментарий (дизайн, снятие, пожелания):</label>
+      <input type="text" id="clientNote" placeholder="Например: хочу френч или ремонт 1 ногтя">
+      
+      <div id="clientSummaryBox" style="background:#fdf6f7; padding:12px; border-radius:10px; margin:10px 0; font-size:13px;">
+        Выберите услугу и время выше
+      </div>
+
+      <button class="btn" onclick="submitClientBooking()">Записаться онлайн</button>
+    </div>
+  </div>
+
+  <!-- ==================== РЕЖИМ АДМИНА (МАСТЕР) ==================== -->
+  <div id="adminView" class="hidden">
+
+    <!-- ВКЛАДКА 1: КАЛЕНДАРЬ И ЗАПИСИ -->
+    <div id="tabSchedule">
+      <div class="card">
+        <div class="card-title script-font">Расписание и Запись</div>
+        <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
+          <input type="date" id="adminDateFilter" onchange="renderAdminSchedule()" style="margin-bottom:0;">
+          <button class="btn btn-outline btn-sm" onclick="showAllDates()">Все дни</button>
+        </div>
+        <div id="adminAppointmentsList"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title script-font">Записать клиента вручную</div>
+        <label>Имя клиентки:</label>
+        <input type="text" id="admClientName" placeholder="Имя">
+        <label>Телефон:</label>
+        <input type="tel" id="admClientPhone" placeholder="+7 (999) 000-00-00">
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+          <div>
+            <label>Дата:</label>
+            <input type="date" id="admDate">
+          </div>
+          <div>
+            <label>Время:</label>
+            <select id="admTime">
+              <option value="10:00">10:00</option>
+              <option value="12:30">12:30</option>
+              <option value="15:00">15:00</option>
+              <option value="17:30">17:30</option>
+              <option value="20:00">20:00</option>
+            </select>
+          </div>
+        </div>
+        <label>Основная услуга:</label>
+        <select id="admService"></select>
+        <label>Тип прайса:</label>
+        <select id="admPriceMode">
+          <option value="new">Новый прайс (Центр — 2000 ₽ покрытие)</option>
+          <option value="old">Старый прайс (Переходный — 1650 ₽ покрытие)</option>
+        </select>
+        <button class="btn" onclick="addAdminBooking()">Добавить запись в календарь</button>
+      </div>
+    </div>
+
+    <!-- ВКЛАДКА 2: КЛИЕНТЫ И КАРТЫ ЛОЯЛЬНОСТИ -->
+    <div id="tabClients" class="hidden">
+      <div class="card">
+        <div class="card-title script-font">База клиентов и 10 щитов</div>
+        <p style="font-size:11px; color:var(--muted); margin-bottom:12px; text-align:center;">
+          3 визит: -10% • 5 визит: -20% • 8 и 9 визит: 🎁 Подарок • 10 визит: -30%
+        </p>
+        <div id="adminClientsList"></div>
+      </div>
+    </div>
+
+    <!-- ВКЛАДКА 3: СКЛАД И ЗАКУПКИ -->
+    <div id="tabInventory" class="hidden">
+      <div class="card">
+        <div class="card-title script-font">Себестоимость 1 процедуры</div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+          <div>
+            <label>Одноразовый набор (пилка, баф, пакет), ₽:</label>
+            <input type="number" id="costDisposable" value="65" onchange="saveSettings()">
+          </div>
+          <div>
+            <label>Порция базы/геля/топа (покрытие), ₽:</label>
+            <input type="number" id="costGel" value="85" onchange="saveSettings()">
+          </div>
+          <div>
+            <label>Порция для наращивания (формы+гель), ₽:</label>
+            <input type="number" id="costExt" value="160" onchange="saveSettings()">
+          </div>
+          <div>
+            <label>Себестоимость подарка (8-9 визит), ₽:</label>
+            <input type="number" id="costGift" value="50" onchange="saveSettings()">
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title script-font">Журнал закупок (Гели, Фрезы, Аренда)</div>
+        <label>Что купили / оплатили:</label>
+        <input type="text" id="expTitle" placeholder="Напр.: Партия гель-лаков и топ">
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+          <div>
+            <label>Сумма (₽):</label>
+            <input type="number" id="expAmount" placeholder="2500">
+          </div>
+          <div>
+            <label>Категория:</label>
+            <select id="expCat">
+              <option value="Материалы (гели/лаки)">Материалы (гели/лаки)</option>
+              <option value="Расходники (пилки/перчатки)">Расходники</option>
+              <option value="Инвентарь и фрезы">Инвентарь и фрезы</option>
+              <option value="Аренда кабинета (Сенная)">Аренда на Сенной</option>
+              <option value="Подарки клиентам">Подарки (8-9 визит)</option>
+            </select>
+          </div>
+        </div>
+        <button class="btn" onclick="addExpense()">Внести расход в чеки</button>
+        <div id="expensesList" style="margin-top:14px;"></div>
+      </div>
+    </div>
+
+    <!-- ВКЛАДКА 4: ФИНАНСЫ И GOOGLE ТАБЛИЦА -->
+    <div id="tabFinance" class="hidden">
+      <div class="card">
+        <div class="card-title script-font">Финансы и Чистая прибыль</div>
+        <div class="stat-row">
+          <div class="stat-box">
+            <div style="font-size:11px; color:var(--muted);">Выручка (по записям)</div>
+            <div class="stat-val" id="finGross">0 ₽</div>
+          </div>
+          <div class="stat-box">
+            <div style="font-size:11px; color:var(--muted);">Чистая с процедур</div>
+            <div class="stat-val" id="finNetOp" style="color:var(--green);">0 ₽</div>
+          </div>
+        </div>
+        <div class="stat-row">
+          <div class="stat-box">
+            <div style="font-size:11px; color:var(--muted);">Чеки закупок и аренда</div>
+            <div class="stat-val" id="finExpenses" style="color:var(--danger);">0 ₽</div>
+          </div>
+          <div class="stat-box">
+            <div style="font-size:11px; color:var(--muted);">Реальный остаток (Cash Flow)</div>
+            <div class="stat-val" id="finCashFlow">0 ₽</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title script-font">Связь с Google Таблицей</div>
+        <label>URL веб-приложения Google Apps Script:</label>
+        <input type="url" id="gasUrlInput" placeholder="https://script.google.com/macros/s/.../exec" onchange="saveSettings()">
+        <div style="display:flex; gap:8px;">
+          <button class="btn btn-outline" style="flex:1;" onclick="syncFromCloud()">🔄 Загрузить из Таблицы</button>
+          <button class="btn" style="flex:1;" onclick="syncToCloud()">☁️ Выгрузить в Таблицу</button>
+        </div>
+        <p id="syncStatus" style="font-size:11px; color:var(--muted); margin-top:8px; text-align:center;"></p>
+      </div>
+    </div>
+
+    <!-- Нижняя панель навигации Мастера -->
+    <div class="admin-nav">
+      <button class="nav-tab active" onclick="switchAdminTab('Schedule', this)">📅<span>Записи</span></button>
+      <button class="nav-tab" onclick="switchAdminTab('Clients', this)">🛡️<span>Карты (10)</span></button>
+      <button class="nav-tab" onclick="switchAdminTab('Inventory', this)">💅<span>Склад</span></button>
+      <button class="nav-tab" onclick="switchAdminTab('Finance', this)">💰<span>Прибыль</span></button>
+    </div>
+
+  </div>
+</div>
+
+<script>
+  // ==================== БАЗОВЫЕ ДАННЫЕ ПРАЙСА ====================
+  const SERVICES = [
+    { id: 'coat', name: 'Маникюр с покрытием', price: 2000, oldPrice: 1650, dur: '2 ч', matType: 'gel' },
+    { id: 'ext', name: 'Наращивание', price: 2700, oldPrice: 1800, dur: '2.5 ч', matType: 'ext' },
+    { id: 'clean', name: 'Маникюр без покрытия', price: 1000, oldPrice: 650, dur: '1 ч', matType: 'clean' },
+    { id: 'french', name: '+ Френч', price: 300, oldPrice: 200, dur: '+20 мин', matType: 'addon' },
+    { id: 'repair', name: '+ Ремонт 1 ногтя', price: 100, oldPrice: 50, dur: '+10 мин', matType: 'addon' },
+    { id: 'design', name: '+ Дизайн (от 1 ногтя)', price: 100, oldPrice: 50, dur: '+15 мин', matType: 'addon' }
+  ];
+
+  const DEFAULT_SLOTS = ['10:00', '12:30', '15:00', '17:30', '20:00'];
+  const ADMIN_PIN = '5837';
+
+  // Состояние приложения
+  let state = JSON.parse(localStorage.getItem('karna_crm_v2')) || {
+    appointments: [
+      { id: 1, name: 'Екатерина (Постоянник)', phone: '+79991112233', date: new Date().toISOString().slice(0,10), time: '12:30', serviceIds: ['coat', 'french'], priceMode: 'new', status: 'booked', note: 'Любит молочную базу' }
+    ],
+    clients: {
+      '+79991112233': { name: 'Екатерина (Постоянник)', phone: '+79991112233', visits: 0, bonusStamps: 2, formula: 'Молочная база #04' }
+    },
+    expenses: [
+      { id: 1, title: 'Аренда кабинета (Сенная)', amount: 15000, cat: 'Аренда на Сенной', date: new Date().toISOString().slice(0,10) }
+    ],
+    settings: { costDisposable: 65, costGel: 85, costExt: 160, costGift: 50, gasUrl: '' }
+  };
+
+  let selectedClientServices = ['coat'];
+  let selectedClientSlot = '15:00';
+  let isAdmin = false;
+
+  function saveState() {
+    localStorage.setItem('karna_crm_v2', JSON.stringify(state));
+  }
+
+  function cleanPhone(p) {
+    let digits = (p || '').replace(/\D/g, '');
+    if (digits.startsWith('8')) digits = '7' + digits.slice(1);
+    if (digits.length === 10) digits = '7' + digits;
+    return digits ? '+' + digits : '';
+  }
+
+  // ==================== ЛОГИКА КАРТЫ ЛОЯЛЬНОСТИ (10 ЩИТОВ) ====================
+  // 3 визит: -10%, 5 визит: -20%, 8 и 9 визит: Подарок, 10 визит: -30%
+  function getLoyaltyInfo(totalStampsBeforeThisVisit) {
+    const currentCycleVisit = (totalStampsBeforeThisVisit % 10) + 1; // от 1 до 10
+    let discountPercent = 0;
+    let hasGift = false;
+    let label = `${currentCycleVisit}-й визит в карте`;
+
+    if (currentCycleVisit === 3) { discountPercent = 10; label = '3-й визит: Скидка -10%!'; }
+    else if (currentCycleVisit === 5) { discountPercent = 20; label = '5-й визит: Скидка -20%!'; }
+    else if (currentCycleVisit === 8 || currentCycleVisit === 9) { hasGift = true; label = `${currentCycleVisit}-й визит: 🎁 Подарочек от мастера!`; }
+    else if (currentCycleVisit === 10) { discountPercent = 30; label = '10-й юбилейный визит: Скидка -30%!'; }
+
+    return { currentCycleVisit, discountPercent, hasGift, label };
+  }
+
+  // ==================== РАСЧЕТ СТОИМОСТИ И ЧИСТОЙ ПРИБЫЛИ ====================
+  function calculateVisitMath(serviceIds, phone, priceMode = 'new') {
+    const normPhone = cleanPhone(phone);
+    const client = state.clients[normPhone] || { visits: 0, bonusStamps: 0 };
+    const totalStamps = (client.visits || 0) + (client.bonusStamps || 0);
+    const loyalty = getLoyaltyInfo(totalStamps);
+
+    let baseSum = 0;
+    let matCost = Number(state.settings.costDisposable || 65);
+
+    serviceIds.forEach(id => {
+      const s = SERVICES.find(x => x.id === id);
+      if (!s) return;
+      baseSum += (priceMode === 'old' ? s.oldPrice : s.price);
+      if (s.matType === 'gel') matCost += Number(state.settings.costGel || 85);
+      if (s.matType === 'ext') matCost += Number(state.settings.costExt || 160);
+      if (s.matType === 'addon') matCost += 15;
+    });
+
+    const discountRub = Math.round(baseSum * (loyalty.discountPercent / 100));
+    const finalPrice = baseSum - discountRub;
+    const giftCost = loyalty.hasGift ? Number(state.settings.costGift || 50) : 0;
+    const taxSelfEmployed = Math.round(finalPrice * 0.04); // 4% НПД
+    const netProfit = finalPrice - matCost - giftCost - taxSelfEmployed;
+
+    return { baseSum, discountRub, finalPrice, matCost, giftCost, taxSelfEmployed, netProfit, loyalty };
+  }
+
+  // ==================== РЕНДЕР РЕЖИМА КЛИЕНТА ====================
+  function renderClientServices() {
+    const grid = document.getElementById('clientServicesGrid');
+    grid.innerHTML = SERVICES.map(s => {
+      const sel = selectedClientServices.includes(s.id) ? 'selected' : '';
+      return `
+        <div class="service-item ${sel}" onclick="toggleClientService('${s.id}')">
+          <div class="service-name">${s.name}</div>
+          <div class="service-price">${s.price} ₽</div>
+          <div class="service-dur">⏱ ${s.dur}</div>
+        </div>
+      `;
+    }).join('');
+    updateClientSummary();
+  }
+
+  function toggleClientService(id) {
+    const mainIds = ['coat', 'ext', 'clean'];
+    if (mainIds.includes(id)) {
+      selectedClientServices = selectedClientServices.filter(x => !mainIds.includes(x));
+      selectedClientServices.unshift(id);
+    } else {
+      if (selectedClientServices.includes(id)) {
+        selectedClientServices = selectedClientServices.filter(x => x !== id);
+      } else {
+        selectedClientServices.push(id);
+      }
+    }
+    renderClientServices();
+  }
+
+  function renderClientLoyalty() {
+    const rawPhone = document.getElementById('clientPhoneCheck').value;
+    const normPhone = cleanPhone(rawPhone);
+    const client = state.clients[normPhone] || { visits: 0, bonusStamps: 0 };
+    const stamps = ((client.visits || 0) + (client.bonusStamps || 0)) % 10;
+    const loyalty = getLoyaltyInfo((client.visits || 0) + (client.bonusStamps || 0));
+
+    document.getElementById('clientLoyaltyStatus').innerText =
+      normPhone.length >= 11 ? `${loyalty.label} (Отмечено щитов: ${stamps}/10)` : 'Введите свой номер для проверки накопленных щитов';
+
+    const labels = ['1', '2', '-10%', '4', '-20%', '6', '7', '🎁', '🎁', '-30%'];
+    document.getElementById('clientShieldsGrid').innerHTML = labels.map((text, idx) => {
+      let cls = '';
+      if (idx < stamps) cls = 'done';
+      else if (idx === stamps) cls = 'next';
+      return `<div class="shield ${cls}"><span>${idx < stamps ? '✓' : text}</span></div>`;
+    }).join('');
+
+    updateClientSummary();
+  }
+
+  function renderClientSlots() {
+    const dateVal = document.getElementById('clientDate').value;
+    const bookedTimes = state.appointments
+      .filter(a => a.date === dateVal && a.status !== 'cancelled')
+      .map(a => a.time);
+
+    const grid = document.getElementById('clientSlotsGrid');
+    grid.innerHTML = DEFAULT_SLOTS.map(time => {
+      const isBooked = bookedTimes.includes(time);
+      const isSel = selectedClientSlot === time && !isBooked;
+      return `
+        <button class="slot-btn ${isSel ? 'selected' : ''}" 
+                ${isBooked ? 'disabled' : ''} 
+                onclick="selectSlot('${time}')">
+          ${time}
+        </button>
+      `;
+    }).join('');
+    updateClientSummary();
+  }
+
+  function selectSlot(t) {
+    selectedClientSlot = t;
+    renderClientSlots();
+  }
+
+  function updateClientSummary() {
+    const phone = document.getElementById('clientPhoneCheck').value;
+    const dateVal = document.getElementById('clientDate').value;
+    const math = calculateVisitMath(selectedClientServices, phone, 'new');
+    const names = selectedClientServices.map(id => SERVICES.find(s => s.id === id)?.name).join(', ');
+
+    document.getElementById('clientSummaryBox').innerHTML = `
+      <div><b>Услуги:</b> ${names || 'Не выбрано'}</div>
+      <div><b>Дата и время:</b> ${dateVal} в ${selectedClientSlot || '—'}</div>
+      <div><b>Бонус по карте:</b> <span style="color:var(--accent-dark); font-weight:600;">${math.loyalty.label}</span></div>
+      <div style="font-size:16px; margin-top:6px;"><b>Итого к оплате: ${math.finalPrice} ₽</b> ${math.discountRub > 0 ? `<s style="color:#999; font-size:12px;">${math.baseSum} ₽</s>` : ''}</div>
+    `;
+  }
+
+  function submitClientBooking() {
+    const name = document.getElementById('clientName').value.trim();
+    const phone = cleanPhone(document.getElementById('clientPhoneCheck').value);
+    const date = document.getElementById('clientDate').value;
+    const note = document.getElementById('clientNote').value.trim();
+
+    if (!name || phone.length < 11) {
+      alert('Пожалуйста, укажите ваше имя и корректный номер телефона!');
+      return;
+    }
+    if (!selectedClientSlot) {
+      alert('Выберите свободное время!');
+      return;
+    }
+
+    if (!state.clients[phone]) {
+      state.clients[phone] = { name, phone, visits: 0, bonusStamps: 0, formula: '' };
+    } else {
+      state.clients[phone].name = name;
+    }
+
+    const newAppt = {
+      id: Date.now(),
+      name, phone, date,
+      time: selectedClientSlot,
+      serviceIds: [...selectedClientServices],
+      priceMode: 'new',
+      status: 'booked',
+      note
+    };
+
+    state.appointments.push(newAppt);
+    saveState();
+    if (state.settings.gasUrl) syncToCloud();
+
+    alert(`Спасибо, ${name}! Вы успешно записаны на ${date} в ${selectedClientSlot}. Ждем вас в karna.nails (м. Сенная)!`);
+    renderClientSlots();
+  }
+
+  // ==================== ПЕРЕКЛЮЧЕНИЕ В РЕЖИМ МАСТЕРА ====================
+  function toggleAdminMode() {
+    if (!isAdmin) {
+      const pin = prompt('Введите ПИН-код мастера ');
+      if (pin !== ADMIN_PIN) {
+        alert('Неверный ПИН-код!');
+        return;
+      }
+      isAdmin = true;
+      document.getElementById('clientView').classList.add('hidden');
+      document.getElementById('adminView').classList.remove('hidden');
+      document.getElementById('adminBadge').classList.remove('hidden');
+      renderAllAdmin();
+    } else {
+      isAdmin = false;
+      document.getElementById('adminView').classList.add('hidden');
+      document.getElementById('clientView').classList.remove('hidden');
+      document.getElementById('adminBadge').classList.add('hidden');
+      renderClientSlots();
+      renderClientLoyalty();
+    }
+  }
+
+  function switchAdminTab(tabName, btn) {
+    ['Schedule', 'Clients', 'Inventory', 'Finance'].forEach(t => {
+      document.getElementById('tab' + t).classList.add('hidden');
+    });
+    document.getElementById('tab' + tabName).classList.remove('hidden');
+    document.querySelectorAll('.nav-tab').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    renderAllAdmin();
+  }
+
+  // ==================== РЕНДЕР АДМИНКИ ====================
+  function renderAllAdmin() {
+    renderAdminSchedule();
+    renderAdminClients();
+    renderAdminExpenses();
+    renderAdminFinance();
+  }
+
+  function showAllDates() {
+    document.getElementById('adminDateFilter').value = '';
+    renderAdminSchedule();
+  }
+
+  function renderAdminSchedule() {
+    const filterDate = document.getElementById('adminDateFilter').value;
+    const list = document.getElementById('adminAppointmentsList');
+    let appts = [...state.appointments].sort((a,b) => (a.date + a.time).localeCompare(b.date + b.time));
+    if (filterDate) appts = appts.filter(a => a.date === filterDate);
+
+    if (appts.length === 0) {
+      list.innerHTML = `<p style="text-align:center; color:var(--muted); font-size:13px;">На выбранную дату записей пока нет</p>`;
+      return;
+    }
+
+    list.innerHTML = appts.map(a => {
+      const math = calculateVisitMath(a.serviceIds, a.phone, a.priceMode);
+      const srvNames = a.serviceIds.map(id => SERVICES.find(s => s.id === id)?.name).join(', ');
+      const isDone = a.status === 'completed';
+
+      return `
+        <div class="appt-item ${isDone ? 'completed' : ''}">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <b>📅 ${a.date} в ${a.time} — ${a.name}</b>
+            <span class="badge badge-profit">Чистыми: +${math.netProfit} ₽</span>
+          </div>
+          <div style="font-size:12px; color:var(--muted); margin:4px 0;">📞 ${a.phone} • ${srvNames}</div>
+          ${a.note ? `<div style="font-size:11px; background:#fff; padding:4px 8px; border-radius:6px; margin:4px 0;">💬 ${a.note}</div>` : ''}
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px; flex-wrap:wrap; gap:6px;">
+            <span class="badge badge-bonus">${math.loyalty.label} • К оплате: ${math.finalPrice} ₽</span>
+            <div style="display:flex; gap:6px;">
+              ${!isDone ? `<button class="btn btn-sm" style="background:var(--green);" onclick="completeAppt(${a.id})">✓ Визит проведен (+щит)</button>` : `<span style="font-size:11px; color:var(--green); font-weight:700;">✓ Оплачено</span>`}
+              <button class="btn btn-outline btn-sm" style="color:var(--danger); border-color:var(--danger);" onclick="deleteAppt(${a.id})">✕</button>
+            </div>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  function completeAppt(id) {
+    const appt = state.appointments.find(a => a.id === id);
+    if (!appt || appt.status === 'completed') return;
+    appt.status = 'completed';
+    if (!state.clients[appt.phone]) {
+      state.clients[appt.phone] = { name: appt.name, phone: appt.phone, visits: 0, bonusStamps: 0, formula: '' };
+    }
+    state.clients[appt.phone].visits = (state.clients[appt.phone].visits || 0) + 1;
+    saveState();
+    renderAllAdmin();
+  }
+
+  function deleteAppt(id) {
+    state.appointments = state.appointments.filter(a => a.id !== id);
+    saveState();
+    renderAllAdmin();
+  }
+
+  function addAdminBooking() {
+    const name = document.getElementById('admClientName').value.trim();
+    const phone = cleanPhone(document.getElementById('admClientPhone').value);
+    const date = document.getElementById('admDate').value;
+    const time = document.getElementById('admTime').value;
+    const srv = document.getElementById('admService').value;
+    const priceMode = document.getElementById('admPriceMode').value;
+
+    if (!name || !phone || !date) { alert('Заполните имя, телефон и дату!'); return; }
+    if (!state.clients[phone]) {
+      state.clients[phone] = { name, phone, visits: 0, bonusStamps: 0, formula: '' };
+    }
+    state.appointments.push({
+      id: Date.now(), name, phone, date, time, serviceIds: [srv], priceMode, status: 'booked', note: ''
+    });
+    saveState();
+    renderAllAdmin();
+    alert('Запись добавлена!');
+  }
+
+  function renderAdminClients() {
+    const container = document.getElementById('adminClientsList');
+    const clientsArr = Object.values(state.clients);
+    const labels = ['1', '2', '-10%', '4', '-20%', '6', '7', '🎁', '🎁', '-30%'];
+
+    container.innerHTML = clientsArr.map(c => {
+      const total = (c.visits || 0) + (c.bonusStamps || 0);
+      const stampsInCard = total % 10;
+      const loyalty = getLoyaltyInfo(total);
+
+      const shieldsHtml = labels.map((txt, idx) => {
+        const cls = idx < stampsInCard ? 'done' : (idx === stampsInCard ? 'next' : '');
+        return `<div class="shield ${cls}"><span>${idx < stampsInCard ? '✓' : txt}</span></div>`;
+      }).join('');
+
+      return `
+        <div class="appt-item">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <b>${c.name} (${c.phone})</b>
+            <button class="btn btn-outline btn-sm" onclick="giveOldClientBonus('${c.phone}')">+2 щита (Старичку)</button>
+          </div>
+          <div style="font-size:12px; color:var(--accent-dark); margin-top:4px; font-weight:600;">
+            Следующий визит: ${loyalty.label} (Всего визитов: ${total})
+          </div>
+          <div class="shields-grid">${shieldsHtml}</div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  function giveOldClientBonus(phone) {
+    if (state.clients[phone]) {
+      state.clients[phone].bonusStamps = (state.clients[phone].bonusStamps || 0) + 2;
+      saveState();
+      renderAdminClients();
+    }
+  }
+
+  function addExpense() {
+    const title = document.getElementById('expTitle').value.trim();
+    const amount = Number(document.getElementById('expAmount').value);
+    const cat = document.getElementById('expCat').value;
+    if (!title || !amount) return;
+    state.expenses.unshift({ id: Date.now(), title, amount, cat, date: new Date().toISOString().slice(0,10) });
+    document.getElementById('expTitle').value = '';
+    document.getElementById('expAmount').value = '';
+    saveState();
+    renderAllAdmin();
+  }
+
+  function renderAdminExpenses() {
+    const box = document.getElementById('expensesList');
+    box.innerHTML = state.expenses.map(e => `
+      <div style="display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid #f0d5da; font-size:13px;">
+        <div><b>${e.title}</b> <span style="color:var(--muted); font-size:11px;">(${e.cat})</span></div>
+        <div style="color:var(--danger); font-weight:600;">-${e.amount} ₽</div>
+      </div>
+    `).join('');
+  }
+
+  function renderAdminFinance() {
+    let gross = 0;
+    let netOp = 0;
+    state.appointments.forEach(a => {
+      if (a.status === 'cancelled') return;
+      const m = calculateVisitMath(a.serviceIds, a.phone, a.priceMode);
+      gross += m.finalPrice;
+      netOp += m.netProfit;
+    });
+    const totalExp = state.expenses.reduce((acc, x) => acc + Number(x.amount || 0), 0);
+    const cashFlow = gross - totalExp;
+
+    document.getElementById('finGross').innerText = gross + ' ₽';
+    document.getElementById('finNetOp').innerText = '+' + netOp + ' ₽';
+    document.getElementById('finExpenses').innerText = '-' + totalExp + ' ₽';
+    document.getElementById('finCashFlow').innerText = (cashFlow >= 0 ? '+' : '') + cashFlow + ' ₽';
+  }
+
+  function saveSettings() {
+    state.settings.costDisposable = Number(document.getElementById('costDisposable').value);
+    state.settings.costGel = Number(document.getElementById('costGel').value);
+    state.settings.costExt = Number(document.getElementById('costExt').value);
+    state.settings.costGift = Number(document.getElementById('costGift').value);
+    state.settings.gasUrl = document.getElementById('gasUrlInput').value.trim();
+    saveState();
+    renderAllAdmin();
+  }
+
+  // ==================== СИНХРОНИЗАЦИЯ С GOOGLE ТАБЛИЦЕЙ ====================
+  async function syncToCloud() {
+    const url = state.settings.gasUrl;
+    if (!url) { alert('Укажите URL скрипта Google Таблицы во вкладке Прибыль!'); return; }
+    document.getElementById('syncStatus').innerText = 'Сохранение в Google Таблицу...';
+    try {
+      await fetch(url, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(state)
+      });
+      document.getElementById('syncStatus').innerText = '✅ Данные успешно отправлены в Google Таблицу!';
+    } catch (e) {
+      document.getElementById('syncStatus').innerText = 'Ошибка синхронизации: ' + e.message;
+    }
+  }
+
+  async function syncFromCloud() {
+    const url = state.settings.gasUrl;
+    if (!url) { alert('Укажите URL скрипта Google Таблицы!'); return; }
+    document.getElementById('syncStatus').innerText = 'Загрузка расписания из Таблицы...';
+    try {
+      const res = await fetch(url);
+      const data = await res.json();
+      if (data && data.appointments) {
+        state = data;
+        saveState();
+        renderClientSlots();
+        renderClientLoyalty();
+        if (isAdmin) renderAllAdmin();
+        document.getElementById('syncStatus').innerText = '✅ Расписание и карты синхронизированы!';
+      }
+    } catch (e) {
+      document.getElementById('syncStatus').innerText = 'Ошибка загрузки: проверьте доступ "Все" в Apps Script.';
+    }
+  }
+
+  // Инициализация при запуске
+  window.onload = () => {
+    const today = new Date().toISOString().slice(0,10);
+    document.getElementById('clientDate').value = today;
+    document.getElementById('admDate').value = today;
+    document.getElementById('admService').innerHTML = SERVICES.map(s => `<option value="${s.id}">${s.name} (${s.price} ₽)</option>`).join('');
+    document.getElementById('gasUrlInput').value = state.settings.gasUrl || '';
+
+    renderClientServices();
+    renderClientLoyalty();
+    renderClientSlots();
+    if (state.settings.gasUrl) syncFromCloud();
+  };
+</script>
+</body>
+</html>
