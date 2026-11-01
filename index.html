@@ -382,15 +382,9 @@
 
   // Состояние приложения
   let state = JSON.parse(localStorage.getItem('karna_crm_v2')) || {
-    appointments: [
-      { id: 1, name: 'Екатерина (Постоянник)', phone: '+79991112233', date: new Date().toISOString().slice(0,10), time: '12:30', serviceIds: ['coat', 'french'], priceMode: 'new', status: 'booked', note: 'Любит молочную базу' }
-    ],
-    clients: {
-      '+79991112233': { name: 'Екатерина (Постоянник)', phone: '+79991112233', visits: 0, bonusStamps: 2, formula: 'Молочная база #04' }
-    },
-    expenses: [
-      { id: 1, title: 'Аренда кабинета (Сенная)', amount: 15000, cat: 'Аренда на Сенной', date: new Date().toISOString().slice(0,10) }
-    ],
+    appointments: [],
+    clients: {},
+    expenses: [],
     settings: { costDisposable: 65, costGel: 85, costExt: 160, costGift: 50, gasUrl: '' }
   };
 
@@ -558,7 +552,7 @@ body: JSON.stringify(state)
     `;
   }
 
-  function submitClientBooking() {
+async function submitClientBooking() {
     const name = document.getElementById('clientName').value.trim();
     const phone = cleanPhone(document.getElementById('clientPhoneCheck').value);
     const date = document.getElementById('clientDate').value;
@@ -573,6 +567,29 @@ body: JSON.stringify(state)
       return;
     }
 
+    // 1. СКАЧИВАЕМ АКТУАЛЬНУЮ БАЗУ (защита от затирания чужих записей)
+    if (state.settings.gasUrl) {
+      document.getElementById('clientSummaryBox').innerHTML = '<i>Синхронизация с базой... Пожалуйста, подождите.</i>';
+      try {
+        const res = await fetch(state.settings.gasUrl);
+        const cloudData = await res.json();
+        if (cloudData && cloudData.appointments) {
+          state = cloudData; // Принудительно обновляем кэш из облака
+        }
+      } catch (e) {
+        console.error('Ошибка синхронизации', e);
+      }
+    }
+
+    // 2. ПРОВЕРЯЕМ СЛОТ (вдруг его уже заняли)
+    const isBooked = state.appointments.some(a => a.date === date && a.time === selectedClientSlot && a.status !== 'cancelled');
+    if (isBooked) {
+      alert('Извините, это время только что заняли. Пожалуйста, выберите другое.');
+      renderClientSlots(); // Обновляем кнопки времени на экране
+      return;
+    }
+
+    // 3. ДОБАВЛЯЕМ КЛИЕНТА
     if (!state.clients[phone]) {
       state.clients[phone] = { name, phone, visits: 0, bonusStamps: 0, formula: '' };
     } else {
@@ -580,19 +597,22 @@ body: JSON.stringify(state)
     }
 
     const newAppt = {
-      id: Date.now(),
-      name, phone, date,
-      time: selectedClientSlot,
-      serviceIds: [...selectedClientServices],
-      priceMode: 'new',
-      status: 'booked',
-      note
+      id: Date.now(), name, phone, date, time: selectedClientSlot,
+      serviceIds: [...selectedClientServices], priceMode: 'new', status: 'booked', note
     };
 
     state.appointments.push(newAppt);
-    saveState();
-    if (state.settings.gasUrl) syncToCloud();
+    saveState(); // Пишем в кэш
+    
+    // 4. ВЫГРУЖАЕМ ФИНАЛЬНУЮ БАЗУ
+    if (state.settings.gasUrl) {
+       await syncToCloud(); 
+    }
 
+    alert(`Спасибо, ${name}! Вы успешно записаны на ${date} в ${selectedClientSlot}.`);
+    renderClientSlots();
+    updateClientSummary();
+  }
     alert(`Спасибо, ${name}! Вы успешно записаны на ${date} в ${selectedClientSlot}. Ждем вас в karna.nails (м. Сенная)!`);
     renderClientSlots();
   }
