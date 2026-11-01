@@ -861,11 +861,16 @@ async function submitClientBooking() {
   }
 
   // Инициализация при запуске
-  window.onload = () => {
+window.onload = () => {
     const today = new Date().toISOString().slice(0,10);
     document.getElementById('clientDate').value = today;
     document.getElementById('admDate').value = today;
     document.getElementById('admService').innerHTML = SERVICES.map(s => `<option value="${s.id}">${s.name} (${s.price} ₽)</option>`).join('');
+    
+    // Жестко привязываем подключение к облаку для всех новых клиентов
+    if (typeof SCRIPT_URL !== 'undefined' && SCRIPT_URL !== '') {
+      state.settings.gasUrl = SCRIPT_URL;
+    }
     document.getElementById('gasUrlInput').value = state.settings.gasUrl || '';
 
     renderClientServices();
