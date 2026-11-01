@@ -366,6 +366,7 @@
 </div>
 
 <script>
+  const SCRIPT_URL="https://script.google.com/macros/s/AKfycbwMqKoz0Lj3G_0FJvbNADh1gR94e_50XZHyq5YJEZKnB1M9g2l1d78udfBjSO_JyenfTg/exec"
   // ==================== БАЗОВЫЕ ДАННЫЕ ПРАЙСА ====================
   const SERVICES = [
     { id: 'coat', name: 'Маникюр с покрытием', price: 2000, oldPrice: 1650, dur: '2 ч', matType: 'gel' },
@@ -377,7 +378,7 @@
   ];
 
   const DEFAULT_SLOTS = ['10:00', '12:30', '15:00', '17:30', '20:00'];
-  const ADMIN_PIN = '5837';
+  const ADMIN_PIN = '';
 
   // Состояние приложения
   let state = JSON.parse(localStorage.getItem('karna_crm_v2')) || {
@@ -398,8 +399,21 @@
   let isAdmin = false;
 
   function saveState() {
-    localStorage.setItem('karna_crm_v2', JSON.stringify(state));
-  }
+// Сохраняем локально для скорости интерфейса
+localStorage.setItem('karna_crm_v2', JSON.stringify(state));
+
+// Отправляем копию всех изменений в Google Таблицу
+if (typeof SCRIPT_URL !== 'undefined' && SCRIPT_URL !== "") {
+fetch(SCRIPT_URL, {
+method: 'POST',
+mode: 'no-cors',
+headers: {
+'Content-Type': 'application/json'
+},
+body: JSON.stringify(state)
+}).catch(error => console.error('Ошибка синхронизации:', error));
+}
+}
 
   function cleanPhone(p) {
     let digits = (p || '').replace(/\D/g, '');
