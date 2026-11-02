@@ -615,27 +615,44 @@ async function submitClientBooking() {
   }
     
   // ==================== ПЕРЕКЛЮЧЕНИЕ В РЕЖИМ МАСТЕРА ====================
-  function toggleAdminMode() {
-    if (!isAdmin) {
-      const pin = prompt('Введите ПИН-код мастера ');
-      if (pin !== ADMIN_PIN) {
+ async function toggleAdminMode() {
+  if (!isAdmin) {
+    const pin = prompt('Введите ПИН-код мастера:');
+    if (!pin) return; // Если нажали "Отмена"
+
+    // Показываем статус проверки
+    document.getElementById('adminBadge').classList.remove('hidden');
+    document.getElementById('adminBadge').innerText = 'Проверка...';
+
+    try {
+      const url = state.settings.gasUrl || SCRIPT_URL;
+      // Отправляем пароль в закрытую часть Google на проверку
+      const res = await fetch(`${url}?action=verifyPin&pin=${encodeURIComponent(pin)}`);
+      const data = await res.json();
+
+      if (data.success) {
+        isAdmin = true;
+        document.getElementById('clientView').classList.add('hidden');
+        document.getElementById('adminView').classList.remove('hidden');
+        document.getElementById('adminBadge').innerText = 'Режим Мастера (Админ)';
+        renderAllAdmin();
+      } else {
+        document.getElementById('adminBadge').classList.add('hidden');
         alert('Неверный ПИН-код!');
-        return;
       }
-      isAdmin = true;
-      document.getElementById('clientView').classList.add('hidden');
-      document.getElementById('adminView').classList.remove('hidden');
-      document.getElementById('adminBadge').classList.remove('hidden');
-      renderAllAdmin();
-    } else {
-      isAdmin = false;
-      document.getElementById('adminView').classList.add('hidden');
-      document.getElementById('clientView').classList.remove('hidden');
+    } catch (e) {
       document.getElementById('adminBadge').classList.add('hidden');
-      renderClientSlots();
-      renderClientLoyalty();
+      alert('Ошибка соединения с сервером.');
     }
+  } else {
+    isAdmin = false;
+    document.getElementById('adminView').classList.add('hidden');
+    document.getElementById('clientView').classList.remove('hidden');
+    document.getElementById('adminBadge').classList.add('hidden');
+    renderClientSlots();
+    renderClientLoyalty();
   }
+}
 
   function switchAdminTab(tabName, btn) {
     ['Schedule', 'Clients', 'Inventory', 'Finance'].forEach(t => {
