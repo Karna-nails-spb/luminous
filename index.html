@@ -80,7 +80,7 @@
     .slot-btn {
       padding: 10px 4px; border-radius: 10px; border: 1px solid var(--gold);
       background: #fff; color: var(--text); font-weight: 600; font-size: 13px;
-      cursor: pointer; text-align: center;
+      cursor: pointer; text-align: center; transition: 0.2s;
     }
     .slot-btn.selected { background: var(--accent); color: #fff; border-color: var(--accent-dark); }
     .slot-btn:disabled { background: #eee; color: #aaa; border-color: #ddd; cursor: not-allowed; text-decoration: line-through; }
@@ -212,14 +212,14 @@
   <!-- ==================== РЕЖИМ АДМИНА (МАСТЕР) ==================== -->
   <div id="adminView" class="hidden">
     <!-- Управление плавающим графиком -->
-<div style="background: #f0f8ff; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
-  <h3>🗓 Настройка рабочих часов</h3>
-  <p style="font-size: 0.9em; color: #555;">Выберите дату и впишите доступное время через запятую (например: 12:00, 15:30, 18:00). Если оставить поле пустым, день станет выходным.</p>
-  <input type="date" id="adminScheduleDate" style="padding: 8px; margin-right: 10px;" onchange="loadScheduleForDate()">
-  <input type="text" id="adminScheduleSlots" placeholder="10:00, 12:00..." style="padding: 8px; width: 200px;">
-  <button onclick="saveScheduleForDate()" style="padding: 8px 15px; background: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer;">Сохранить день</button>
-  <span id="scheduleSaveStatus" style="color: green; margin-left: 10px; display: none;">Сохранено! ✓</span>
-</div>
+    <div style="background: #f0f8ff; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+      <h3>🗓 Настройка рабочих часов</h3>
+      <p style="font-size: 0.9em; color: #555;">Выберите дату и впишите доступное время через запятую (например: 12:00, 15:30, 18:00). Если оставить поле пустым, день станет выходным.</p>
+      <input type="date" id="adminScheduleDate" style="padding: 8px; margin-right: 10px;" onchange="loadScheduleForDate()">
+      <input type="text" id="adminScheduleSlots" placeholder="10:00, 12:00..." style="padding: 8px; width: 200px;">
+      <button onclick="saveScheduleForDate()" style="padding: 8px 15px; background: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer;">Сохранить день</button>
+      <span id="scheduleSaveStatus" style="color: green; margin-left: 10px; display: none;">Сохранено! ✓</span>
+    </div>
 
     <!-- ВКЛАДКА 1: КАЛЕНДАРЬ И ЗАПИСИ -->
     <div id="tabSchedule">
@@ -386,10 +386,6 @@
     { id: 'design', name: '+ Дизайн (от 1 ногтя)', price: 100, oldPrice: 50, dur: '+15 мин', matType: 'addon' }
   ];
 
-  const DEFAULT_SLOTS = ['10:00', '12:30', '15:00', '17:30', '20:00'];
-  const ADMIN_PIN = '';
-
-  // Состояние приложения
   let state = JSON.parse(localStorage.getItem('karna_crm_v2')) || {
     appointments: [],
     clients: {},
@@ -398,25 +394,20 @@
   };
 
   let selectedClientServices = ['coat'];
-  let selectedClientSlot = '15:00';
+  let selectedClientSlot = '';
   let isAdmin = false;
 
   function saveState() {
-// Сохраняем локально для скорости интерфейса
-localStorage.setItem('karna_crm_v2', JSON.stringify(state));
-
-// Отправляем копию всех изменений в Google Таблицу
-if (typeof SCRIPT_URL !== 'undefined' && SCRIPT_URL !== "") {
-fetch(SCRIPT_URL, {
-method: 'POST',
-mode: 'no-cors',
-headers: {
-'Content-Type': 'application/json'
-},
-body: JSON.stringify(state)
-}).catch(error => console.error('Ошибка синхронизации:', error));
-}
-}
+    localStorage.setItem('karna_crm_v2', JSON.stringify(state));
+    if (typeof SCRIPT_URL !== 'undefined' && SCRIPT_URL !== "") {
+      fetch(SCRIPT_URL, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(state)
+      }).catch(error => console.error('Ошибка синхронизации:', error));
+    }
+  }
 
   function cleanPhone(p) {
     let digits = (p || '').replace(/\D/g, '');
@@ -425,10 +416,8 @@ body: JSON.stringify(state)
     return digits ? '+' + digits : '';
   }
 
-  // ==================== ЛОГИКА КАРТЫ ЛОЯЛЬНОСТИ (10 ЩИТОВ) ====================
-  // 3 визит: -10%, 5 визит: -20%, 8 и 9 визит: Подарок, 10 визит: -30%
   function getLoyaltyInfo(totalStampsBeforeThisVisit) {
-    const currentCycleVisit = (totalStampsBeforeThisVisit % 10) + 1; // от 1 до 10
+    const currentCycleVisit = (totalStampsBeforeThisVisit % 10) + 1;
     let discountPercent = 0;
     let hasGift = false;
     let label = `${currentCycleVisit}-й визит в карте`;
@@ -441,7 +430,6 @@ body: JSON.stringify(state)
     return { currentCycleVisit, discountPercent, hasGift, label };
   }
 
-  // ==================== РАСЧЕТ СТОИМОСТИ И ЧИСТОЙ ПРИБЫЛИ ====================
   function calculateVisitMath(serviceIds, phone, priceMode = 'new') {
     const normPhone = cleanPhone(phone);
     const client = state.clients[normPhone] || { visits: 0, bonusStamps: 0 };
@@ -463,13 +451,12 @@ body: JSON.stringify(state)
     const discountRub = Math.round(baseSum * (loyalty.discountPercent / 100));
     const finalPrice = baseSum - discountRub;
     const giftCost = loyalty.hasGift ? Number(state.settings.costGift || 50) : 0;
-    const taxSelfEmployed = Math.round(finalPrice * 0.04); // 4% НПД
+    const taxSelfEmployed = Math.round(finalPrice * 0.04);
     const netProfit = finalPrice - matCost - giftCost - taxSelfEmployed;
 
     return { baseSum, discountRub, finalPrice, matCost, giftCost, taxSelfEmployed, netProfit, loyalty };
   }
 
-  // ==================== РЕНДЕР РЕЖИМА КЛИЕНТА ====================
   function renderClientServices() {
     const grid = document.getElementById('clientServicesGrid');
     grid.innerHTML = SERVICES.map(s => {
@@ -521,62 +508,52 @@ body: JSON.stringify(state)
     updateClientSummary();
   }
 
-// === ОТРИСОВКА СЛОТОВ ДЛЯ КЛИЕНТА ===
-// === ОТРИСОВКА СЛОТОВ ДЛЯ КЛИЕНТА ===
-function renderClientSlots() {
-  const container = document.getElementById('clientTimeContainer');
-  if (!container) return;
-  container.innerHTML = '';
-  
-  const selectedDate = document.getElementById('clientDate').value;
-  if (!selectedDate) return;
-  
-  // 1. ОПРЕДЕЛЯЕМ БАЗОВЫЕ ЧАСЫ (СЛОТЫ) НА ЭТОТ ДЕНЬ
-  let baseSlots = [];
-  
-  // Проверяем, есть ли индивидуальный график мастера на этот день
-  if (state.customSchedule && state.customSchedule[selectedDate]) {
-    baseSlots = state.customSchedule[selectedDate];
-    // Если массив пустой (девушка стерла все окна), значит выходной
-    if (baseSlots.length === 0) {
-      container.innerHTML = '<div style="color:#555; text-align:center; padding:10px;">Мастер в этот день не принимает (Выходной)</div>';
-      return;
-    }
-  } else {
-    // Если индивидуальный график не задан, показываем стандартные слоты
-    baseSlots = ['10:00', '12:30', '15:00', '17:30', '20:00'];
-  }
-  
-  // 2. ОТРИСОВЫВАЕМ СЛОТЫ И ПРОВЕРЯЕМ ЗАНЯТОСТЬ
-  baseSlots.forEach(time => {
-    // Добавлена защита (state.appointments || []) на случай, если база еще пустая
-    const isBooked = (state.appointments || []).some(a => a.date === selectedDate && a.time === time);
+  // === ИДЕАЛЬНО РАБОЧАЯ ОТРИСОВКА СЛОТОВ ДЛЯ КЛИЕНТА ===
+  function renderClientSlots() {
+    const container = document.getElementById('clientSlotsGrid'); // <-- Ошибка была здесь в ID!
+    if (!container) return;
+    container.innerHTML = '';
     
-    const div = document.createElement('div');
-    div.className = 'time-slot ' + (isBooked ? 'booked' : 'available');
+    const selectedDate = document.getElementById('clientDate').value;
+    if (!selectedDate) return;
     
-    // Если слот свободен, добавляем возможность выбора
-    if (!isBooked) {
-      div.onclick = () => {
-        document.querySelectorAll('#clientTimeContainer .time-slot').forEach(el => el.classList.remove('selected'));
-        div.classList.add('selected');
-        document.getElementById('selectedTime').value = time;
-      };
+    let baseSlots = [];
+    
+    // Проверка плавающего графика
+    if (state.customSchedule && state.customSchedule[selectedDate]) {
+      baseSlots = state.customSchedule[selectedDate];
+      if (baseSlots.length === 0) {
+        container.innerHTML = '<div style="color:#555; text-align:center; grid-column: 1 / -1; padding:10px;">Мастер в этот день не принимает (Выходной)</div>';
+        return;
+      }
+    } else {
+      baseSlots = ['10:00', '12:30', '15:00', '17:30', '20:00'];
     }
     
-    div.innerText = time;
-    container.appendChild(div);
-  });
-}
-    div.innerText = time;
-    container.appendChild(div);
-  });
-}
-  }
+    // Отрисовка кнопок времени
+    baseSlots.forEach(time => {
+      const isBooked = (state.appointments || []).some(a => a.date === selectedDate && a.time === time && a.status !== 'cancelled');
+      
+      const btn = document.createElement('button');
+      btn.className = 'slot-btn';
+      
+      if (isBooked) {
+        btn.disabled = true; // Кнопка блокируется, если время занято
+      } else {
+        if (selectedClientSlot === time) {
+          btn.classList.add('selected'); // Подсвечиваем, если клиент выбрал это время
+        }
+        btn.onclick = () => {
+          selectedClientSlot = time;
+          renderClientSlots(); // Обновляем экран после клика
+        };
+      }
+      
+      btn.innerText = time;
+      container.appendChild(btn);
+    });
 
-  function selectSlot(t) {
-    selectedClientSlot = t;
-    renderClientSlots();
+    updateClientSummary(); // Обновляем текст Итога
   }
 
   function updateClientSummary() {
@@ -593,44 +570,31 @@ function renderClientSlots() {
     `;
   }
 
-async function submitClientBooking() {
+  async function submitClientBooking() {
     const name = document.getElementById('clientName').value.trim();
     const phone = cleanPhone(document.getElementById('clientPhoneCheck').value);
     const date = document.getElementById('clientDate').value;
     const note = document.getElementById('clientNote').value.trim();
 
-    if (!name || phone.length < 11) {
-      alert('Пожалуйста, укажите ваше имя и корректный номер телефона!');
-      return;
-    }
-    if (!selectedClientSlot) {
-      alert('Выберите свободное время!');
-      return;
-    }
+    if (!name || phone.length < 11) { alert('Пожалуйста, укажите ваше имя и корректный номер телефона!'); return; }
+    if (!selectedClientSlot) { alert('Выберите свободное время!'); return; }
 
-    // 1. СКАЧИВАЕМ АКТУАЛЬНУЮ БАЗУ (защита от затирания чужих записей)
     if (state.settings.gasUrl) {
       document.getElementById('clientSummaryBox').innerHTML = '<i>Синхронизация с базой... Пожалуйста, подождите.</i>';
       try {
         const res = await fetch(state.settings.gasUrl);
         const cloudData = await res.json();
-        if (cloudData && cloudData.appointments) {
-          state = cloudData; // Принудительно обновляем кэш из облака
-        }
-      } catch (e) {
-        console.error('Ошибка синхронизации', e);
-      }
+        if (cloudData && cloudData.appointments) { state = cloudData; }
+      } catch (e) { console.error('Ошибка синхронизации', e); }
     }
 
-    // 2. ПРОВЕРЯЕМ СЛОТ (вдруг его уже заняли)
     const isBooked = state.appointments.some(a => a.date === date && a.time === selectedClientSlot && a.status !== 'cancelled');
     if (isBooked) {
       alert('Извините, это время только что заняли. Пожалуйста, выберите другое.');
-      renderClientSlots(); // Обновляем кнопки времени на экране
+      renderClientSlots(); 
       return;
     }
 
-    // 3. ДОБАВЛЯЕМ КЛИЕНТА
     if (!state.clients[phone]) {
       state.clients[phone] = { name, phone, visits: 0, bonusStamps: 0, formula: '' };
     } else {
@@ -643,57 +607,53 @@ async function submitClientBooking() {
     };
 
     state.appointments.push(newAppt);
-    saveState(); // Пишем в кэш
+    saveState(); 
     
-    // 4. ВЫГРУЖАЕМ ФИНАЛЬНУЮ БАЗУ
     if (state.settings.gasUrl) {
        await syncToCloud(); 
     }
 
     alert(`Спасибо, ${name}! Вы успешно записаны на ${date} в ${selectedClientSlot}.`);
+    selectedClientSlot = ''; // Сбрасываем выбранное время
     renderClientSlots();
-    updateClientSummary();
   }
     
-  // ==================== ПЕРЕКЛЮЧЕНИЕ В РЕЖИМ МАСТЕРА ====================
- async function toggleAdminMode() {
-  if (!isAdmin) {
-    const pin = prompt('Введите ПИН-код мастера:');
-    if (!pin) return; // Если нажали "Отмена"
+  async function toggleAdminMode() {
+    if (!isAdmin) {
+      const pin = prompt('Введите ПИН-код мастера:');
+      if (!pin) return; 
 
-    // Показываем статус проверки
-    document.getElementById('adminBadge').classList.remove('hidden');
-    document.getElementById('adminBadge').innerText = 'Проверка...';
+      document.getElementById('adminBadge').classList.remove('hidden');
+      document.getElementById('adminBadge').innerText = 'Проверка...';
 
-    try {
-      const url = state.settings.gasUrl || SCRIPT_URL;
-      // Отправляем пароль в закрытую часть Google на проверку
-      const res = await fetch(`${url}?action=verifyPin&pin=${encodeURIComponent(pin)}`);
-      const data = await res.json();
+      try {
+        const url = state.settings.gasUrl || SCRIPT_URL;
+        const res = await fetch(`${url}?action=verifyPin&pin=${encodeURIComponent(pin)}`);
+        const data = await res.json();
 
-      if (data.success) {
-        isAdmin = true;
-        document.getElementById('clientView').classList.add('hidden');
-        document.getElementById('adminView').classList.remove('hidden');
-        document.getElementById('adminBadge').innerText = 'Режим Мастера (Админ)';
-        renderAllAdmin();
-      } else {
+        if (data.success) {
+          isAdmin = true;
+          document.getElementById('clientView').classList.add('hidden');
+          document.getElementById('adminView').classList.remove('hidden');
+          document.getElementById('adminBadge').innerText = 'Режим Мастера (Админ)';
+          renderAllAdmin();
+        } else {
+          document.getElementById('adminBadge').classList.add('hidden');
+          alert('Неверный ПИН-код!');
+        }
+      } catch (e) {
         document.getElementById('adminBadge').classList.add('hidden');
-        alert('Неверный ПИН-код!');
+        alert('Ошибка соединения с сервером.');
       }
-    } catch (e) {
+    } else {
+      isAdmin = false;
+      document.getElementById('adminView').classList.add('hidden');
+      document.getElementById('clientView').classList.remove('hidden');
       document.getElementById('adminBadge').classList.add('hidden');
-      alert('Ошибка соединения с сервером.');
+      renderClientSlots();
+      renderClientLoyalty();
     }
-  } else {
-    isAdmin = false;
-    document.getElementById('adminView').classList.add('hidden');
-    document.getElementById('clientView').classList.remove('hidden');
-    document.getElementById('adminBadge').classList.add('hidden');
-    renderClientSlots();
-    renderClientLoyalty();
   }
-}
 
   function switchAdminTab(tabName, btn) {
     ['Schedule', 'Clients', 'Inventory', 'Finance'].forEach(t => {
@@ -705,7 +665,6 @@ async function submitClientBooking() {
     renderAllAdmin();
   }
 
-  // ==================== РЕНДЕР АДМИНКИ ====================
   function renderAllAdmin() {
     renderAdminSchedule();
     renderAdminClients();
@@ -880,7 +839,6 @@ async function submitClientBooking() {
     renderAllAdmin();
   }
 
-  // ==================== СИНХРОНИЗАЦИЯ С GOOGLE ТАБЛИЦЕЙ ====================
   async function syncToCloud() {
     const url = state.settings.gasUrl;
     if (!url) { alert('Укажите URL скрипта Google Таблицы во вкладке Прибыль!'); return; }
@@ -918,14 +876,47 @@ async function submitClientBooking() {
     }
   }
 
-  // Инициализация при запуске
-window.onload = () => {
+  // === ПЛАВАЮЩИЙ ГРАФИК ===
+  function loadScheduleForDate() {
+    const date = document.getElementById('adminScheduleDate').value;
+    if (!date) return;
+    
+    if (!state.customSchedule) state.customSchedule = {};
+    
+    const slotsInput = document.getElementById('adminScheduleSlots');
+    if (state.customSchedule[date] && state.customSchedule[date].length > 0) {
+      slotsInput.value = state.customSchedule[date].join(', ');
+    } else {
+      slotsInput.value = ''; 
+    }
+  }
+
+  function saveScheduleForDate() {
+    const date = document.getElementById('adminScheduleDate').value;
+    if (!date) {
+      alert('Сначала выберите дату!');
+      return;
+    }
+    
+    const rawText = document.getElementById('adminScheduleSlots').value;
+    const slotsArray = rawText.split(',').map(s => s.trim()).filter(s => s !== '');
+    
+    if (!state.customSchedule) state.customSchedule = {};
+    state.customSchedule[date] = slotsArray;
+    
+    const status = document.getElementById('scheduleSaveStatus');
+    status.style.display = 'inline';
+    setTimeout(() => status.style.display = 'none', 2000);
+    
+    syncToCloud(); 
+  }
+
+  window.onload = () => {
     const today = new Date().toISOString().slice(0,10);
     document.getElementById('clientDate').value = today;
     document.getElementById('admDate').value = today;
     document.getElementById('admService').innerHTML = SERVICES.map(s => `<option value="${s.id}">${s.name} (${s.price} ₽)</option>`).join('');
     
-    // Жестко привязываем подключение к облаку для всех новых клиентов
     if (typeof SCRIPT_URL !== 'undefined' && SCRIPT_URL !== '') {
       state.settings.gasUrl = SCRIPT_URL;
     }
@@ -936,44 +927,6 @@ window.onload = () => {
     renderClientSlots();
     if (state.settings.gasUrl) syncFromCloud();
   };
-  // === ПЛАВАЮЩИЙ ГРАФИК ===
-function loadScheduleForDate() {
-  const date = document.getElementById('adminScheduleDate').value;
-  if (!date) return;
-  
-  if (!state.customSchedule) state.customSchedule = {};
-  
-  const slotsInput = document.getElementById('adminScheduleSlots');
-  // Подтягиваем сохраненные окна, если они есть
-  if (state.customSchedule[date] && state.customSchedule[date].length > 0) {
-    slotsInput.value = state.customSchedule[date].join(', ');
-  } else {
-    slotsInput.value = ''; 
-  }
-}
-
-function saveScheduleForDate() {
-  const date = document.getElementById('adminScheduleDate').value;
-  if (!date) {
-    alert('Сначала выберите дату!');
-    return;
-  }
-  
-  const rawText = document.getElementById('adminScheduleSlots').value;
-  // Превращаем текст в массив окон, убираем лишние пробелы
-  const slotsArray = rawText.split(',').map(s => s.trim()).filter(s => s !== '');
-  
-  if (!state.customSchedule) state.customSchedule = {};
-  state.customSchedule[date] = slotsArray;
-  
-  // Показываем индикатор успеха
-  const status = document.getElementById('scheduleSaveStatus');
-  status.style.display = 'inline';
-  setTimeout(() => status.style.display = 'none', 2000);
-  
-  // Отправляем изменения в облако
-  syncToCloud(); 
-}
 </script>
 </body>
 </html>
