@@ -522,8 +522,10 @@ body: JSON.stringify(state)
   }
 
 // === ОТРИСОВКА СЛОТОВ ДЛЯ КЛИЕНТА ===
+// === ОТРИСОВКА СЛОТОВ ДЛЯ КЛИЕНТА ===
 function renderClientSlots() {
   const container = document.getElementById('clientTimeContainer');
+  if (!container) return;
   container.innerHTML = '';
   
   const selectedDate = document.getElementById('clientDate').value;
@@ -541,14 +543,14 @@ function renderClientSlots() {
       return;
     }
   } else {
-    // Если индивидуальный график не задан, показываем стандартные слоты по умолчанию
+    // Если индивидуальный график не задан, показываем стандартные слоты
     baseSlots = ['10:00', '12:30', '15:00', '17:30', '20:00'];
   }
   
   // 2. ОТРИСОВЫВАЕМ СЛОТЫ И ПРОВЕРЯЕМ ЗАНЯТОСТЬ
   baseSlots.forEach(time => {
-    // Проверяем, занято ли это время в общей базе записей
-    const isBooked = state.appointments.some(a => a.date === selectedDate && a.time === time);
+    // Добавлена защита (state.appointments || []) на случай, если база еще пустая
+    const isBooked = (state.appointments || []).some(a => a.date === selectedDate && a.time === time);
     
     const div = document.createElement('div');
     div.className = 'time-slot ' + (isBooked ? 'booked' : 'available');
@@ -562,6 +564,10 @@ function renderClientSlots() {
       };
     }
     
+    div.innerText = time;
+    container.appendChild(div);
+  });
+}
     div.innerText = time;
     container.appendChild(div);
   });
