@@ -211,6 +211,15 @@
 
   <!-- ==================== РЕЖИМ АДМИНА (МАСТЕР) ==================== -->
   <div id="adminView" class="hidden">
+    <!-- Управление плавающим графиком -->
+<div style="background: #f0f8ff; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+  <h3>🗓 Настройка рабочих часов</h3>
+  <p style="font-size: 0.9em; color: #555;">Выберите дату и впишите доступное время через запятую (например: 12:00, 15:30, 18:00). Если оставить поле пустым, день станет выходным.</p>
+  <input type="date" id="adminScheduleDate" style="padding: 8px; margin-right: 10px;" onchange="loadScheduleForDate()">
+  <input type="text" id="adminScheduleSlots" placeholder="10:00, 12:00..." style="padding: 8px; width: 200px;">
+  <button onclick="saveScheduleForDate()" style="padding: 8px 15px; background: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer;">Сохранить день</button>
+  <span id="scheduleSaveStatus" style="color: green; margin-left: 10px; display: none;">Сохранено! ✓</span>
+</div>
 
     <!-- ВКЛАДКА 1: КАЛЕНДАРЬ И ЗАПИСИ -->
     <div id="tabSchedule">
@@ -512,25 +521,51 @@ body: JSON.stringify(state)
     updateClientSummary();
   }
 
-  function renderClientSlots() {
-    const dateVal = document.getElementById('clientDate').value;
-    const bookedTimes = state.appointments
-      .filter(a => a.date === dateVal && a.status !== 'cancelled')
-      .map(a => a.time);
-
-    const grid = document.getElementById('clientSlotsGrid');
-    grid.innerHTML = DEFAULT_SLOTS.map(time => {
-      const isBooked = bookedTimes.includes(time);
-      const isSel = selectedClientSlot === time && !isBooked;
-      return `
-        <button class="slot-btn ${isSel ? 'selected' : ''}" 
-                ${isBooked ? 'disabled' : ''} 
-                onclick="selectSlot('${time}')">
-          ${time}
-        </button>
-      `;
-    }).join('');
-    updateClientSummary();
+// === ОТРИСОВКА СЛОТОВ ДЛЯ КЛИЕНТА ===
+function renderClientSlots() {
+  const container = document.getElementById('clientTimeContainer');
+  container.innerHTML = '';
+  
+  const selectedDate = document.getElementById('clientDate').value;
+  if (!selectedDate) return;
+  
+  // 1. ОПРЕДЕЛЯЕМ БАЗОВЫЕ ЧАСЫ (СЛОТЫ) НА ЭТОТ ДЕНЬ
+  let baseSlots = [];
+  
+  // Проверяем, есть ли индивидуальный график мастера на этот день
+  if (state.customSchedule && state.customSchedule[selectedDate]) {
+    baseSlots = state.customSchedule[selectedDate];
+    // Если массив пустой (девушка стерла все окна), значит выходной
+    if (baseSlots.length === 0) {
+      container.innerHTML = '<div style="color:#555; text-align:center; padding:10px;">Мастер в этот день не принимает (Выходной)</div>';
+      return;
+    }
+  } else {
+    // Если индивидуальный график не задан, показываем стандартные слоты по умолчанию
+    baseSlots = ['10:00', '12:30', '15:00', '17:30', '20:00'];
+  }
+  
+  // 2. ОТРИСОВЫВАЕМ СЛОТЫ И ПРОВЕРЯЕМ ЗАНЯТОСТЬ
+  baseSlots.forEach(time => {
+    // Проверяем, занято ли это время в общей базе записей
+    const isBooked = state.appointments.some(a => a.date === selectedDate && a.time === time);
+    
+    const div = document.createElement('div');
+    div.className = 'time-slot ' + (isBooked ? 'booked' : 'available');
+    
+    // Если слот свободен, добавляем возможность выбора
+    if (!isBooked) {
+      div.onclick = () => {
+        document.querySelectorAll('#clientTimeContainer .time-slot').forEach(el => el.classList.remove('selected'));
+        div.classList.add('selected');
+        document.getElementById('selectedTime').value = time;
+      };
+    }
+    
+    div.innerText = time;
+    container.appendChild(div);
+  });
+}
   }
 
   function selectSlot(t) {
@@ -895,6 +930,44 @@ window.onload = () => {
     renderClientSlots();
     if (state.settings.gasUrl) syncFromCloud();
   };
+  // === ПЛАВАЮЩИЙ ГРАФИК ===
+function loadScheduleForDate() {
+  const date = document.getElementById('adminScheduleDate').value;
+  if (!date) return;
+  
+  if (!state.customSchedule) state.customSchedule = {};
+  
+  const slotsInput = document.getElementById('adminScheduleSlots');
+  // Подтягиваем сохраненные окна, если они есть
+  if (state.customSchedule[date] && state.customSchedule[date].length > 0) {
+    slotsInput.value = state.customSchedule[date].join(', ');
+  } else {
+    slotsInput.value = ''; 
+  }
+}
+
+function saveScheduleForDate() {
+  const date = document.getElementById('adminScheduleDate').value;
+  if (!date) {
+    alert('Сначала выберите дату!');
+    return;
+  }
+  
+  const rawText = document.getElementById('adminScheduleSlots').value;
+  // Превращаем текст в массив окон, убираем лишние пробелы
+  const slotsArray = rawText.split(',').map(s => s.trim()).filter(s => s !== '');
+  
+  if (!state.customSchedule) state.customSchedule = {};
+  state.customSchedule[date] = slotsArray;
+  
+  // Показываем индикатор успеха
+  const status = document.getElementById('scheduleSaveStatus');
+  status.style.display = 'inline';
+  setTimeout(() => status.style.display = 'none', 2000);
+  
+  // Отправляем изменения в облако
+  syncToCloud(); 
+}
 </script>
 </body>
 </html>
