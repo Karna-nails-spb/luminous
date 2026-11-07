@@ -638,8 +638,7 @@ async function toggleAdminMode() {
   badge.innerText = 'Проверка...';
 
   try {
-    const url = state.settings.gasUrl || SCRIPT_URL;
-
+   const url = SCRIPT_URL;
     const data = await new Promise((resolve, reject) => {
       const callback = 'karnaPinCb_' + Date.now();
       const script = document.createElement('script');
