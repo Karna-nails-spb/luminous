@@ -789,10 +789,10 @@ async function toggleAdminMode() {
 
   function renderAdminClients() {
     const container = document.getElementById('adminClientsList');
-    const clientsArr = Object.values(state.clients);
+    const clientsArr = Object.entries(state.clients);
     const labels = ['1', '2', '-10%', '4', '-20%', '6', '7', '🎁', '🎁', '-30%'];
 
-    container.innerHTML = clientsArr.map(c => {
+   container.innerHTML = clientsArr.map(([phone, c]) => {
       const total = (c.visits || 0) + (c.bonusStamps || 0);
       const stampsInCard = total % 10;
       const loyalty = getLoyaltyInfo(total);
@@ -812,6 +812,18 @@ async function toggleAdminMode() {
             Следующий визит: ${loyalty.label} (Всего визитов: ${total})
           </div>
           <div class="shields-grid">${shieldsHtml}</div>
+          <div style="display:flex; gap:8px; margin-top:10px;">
+  <button class="btn btn-outline btn-sm"
+    onclick="editClient('${phone}')">
+    ✏️ Изменить
+  </button>
+
+  <button class="btn btn-outline btn-sm"
+    style="color:var(--danger); border-color:var(--danger);"
+    onclick="deleteClient('${phone}')">
+    🗑️ Удалить
+  </button>
+</div>
         </div>
       `;
     }).join('');
@@ -824,6 +836,108 @@ async function toggleAdminMode() {
       renderAdminClients();
     }
   }
+
+function editClient(oldPhone) {
+  if (!isAdmin) return;
+
+  const client = state.clients[oldPhone];
+  if (!client) return;
+
+  const name = prompt('Имя клиента:', client.name || '');
+  if (name === null) return;
+  if (!name.trim()) {
+    alert('Имя не может быть пустым');
+    return;
+  }
+
+  const phoneInput = prompt('Телефон:', client.phone || oldPhone);
+  if (phoneInput === null) return;
+
+  const phone = cleanPhone(phoneInput);
+  if (!/^\+\d{10,15}$/.test(phone)) {
+    alert('Введите корректный телефон');
+    return;
+  }
+
+  if (phone !== oldPhone && state.clients[phone]) {
+    alert('Клиент с таким телефоном уже существует');
+    return;
+  }
+
+  const visitsInput = prompt('Количество визитов:', client.visits || 0);
+  if (visitsInput === null) return;
+
+  const bonusInput = prompt('Дополнительные бонусные щиты:', client.bonusStamps || 0);
+  if (bonusInput === null) return;
+
+  const visits = Number(visitsInput);
+  const bonusStamps = Number(bonusInput);
+
+  if (
+    !visitsInput.trim() || !bonusInput.trim() ||
+    !Number.isSafeInteger(visits) ||
+    !Number.isSafeInteger(bonusStamps) ||
+    visits < 0 || bonusStamps < 0
+  ) {
+    alert('Количество визитов и щитов должно быть целым неотрицательным числом');
+    return;
+  }
+
+  const formula = prompt('Формула ногтей:', client.formula || '');
+  if (formula === null) return;
+
+  const updatedClient = {
+    ...client,
+    name: name.trim(),
+    phone,
+    visits,
+    bonusStamps,
+    formula: formula.trim()
+  };
+
+  if (phone !== oldPhone) {
+    delete state.clients[oldPhone];
+
+    state.appointments.forEach(a => {
+      if (a.phone === oldPhone) {
+        a.phone = phone;
+      }
+    });
+  }
+
+  state.clients[phone] = updatedClient;
+
+  saveState();
+  renderAllAdmin();
+  alert('Карточка клиента обновлена!');
+}
+
+function deleteClient(phone) {
+  if (!isAdmin) return;
+
+  const client = state.clients[phone];
+  if (!client) return;
+
+  const linkedAppointments = state.appointments.filter(
+    a => a.phone === phone
+  ).length;
+
+  const warning = linkedAppointments
+    ? `\nСвязанных записей: ${linkedAppointments}. Они останутся в истории.`
+    : '';
+
+  if (!confirm(
+    `Удалить карточку клиента "${client.name}"?` +
+    warning +
+    '\nБонусы и данные карточки будут удалены.'
+  )) return;
+
+  delete state.clients[phone];
+
+  saveState();
+  renderAllAdmin();
+  alert('Карточка клиента удалена!');
+}
 
   function addExpense() {
     const title = document.getElementById('expTitle').value.trim();
