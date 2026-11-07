@@ -944,7 +944,8 @@ async function toggleAdminMode() {
     status.style.display = 'inline';
     setTimeout(() => status.style.display = 'none', 2000);
     
-    syncToCloud(); 
+    saveState();
+syncToCloud();
   }
 
   window.onload = () => {
