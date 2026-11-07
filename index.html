@@ -618,42 +618,79 @@
     renderClientSlots();
   }
     
-  async function toggleAdminMode() {
-    if (!isAdmin) {
-      const pin = prompt('Введите ПИН-код мастера:');
-      if (!pin) return; 
-
-      document.getElementById('adminBadge').classList.remove('hidden');
-      document.getElementById('adminBadge').innerText = 'Проверка...';
-
-      try {
-        const url = state.settings.gasUrl || SCRIPT_URL;
-        const res = await fetch(`${url}?action=verifyPin&pin=${encodeURIComponent(pin)}`);
-        const data = await res.json();
-
-        if (data.success) {
-          isAdmin = true;
-          document.getElementById('clientView').classList.add('hidden');
-          document.getElementById('adminView').classList.remove('hidden');
-          document.getElementById('adminBadge').innerText = 'Режим Мастера (Админ)';
-          renderAllAdmin();
-        } else {
-          document.getElementById('adminBadge').classList.add('hidden');
-          alert('Неверный ПИН-код!');
-        }
-      } catch (e) {
-        document.getElementById('adminBadge').classList.add('hidden');
-        alert('Ошибка соединения с сервером.');
-      }
-    } else {
-      isAdmin = false;
-      document.getElementById('adminView').classList.add('hidden');
-      document.getElementById('clientView').classList.remove('hidden');
-      document.getElementById('adminBadge').classList.add('hidden');
-      renderClientSlots();
-      renderClientLoyalty();
-    }
+  
+async function toggleAdminMode() {
+  if (isAdmin) {
+    isAdmin = false;
+    document.getElementById('adminView').classList.add('hidden');
+    document.getElementById('clientView').classList.remove('hidden');
+    document.getElementById('adminBadge').classList.add('hidden');
+    renderClientSlots();
+    renderClientLoyalty();
+    return;
   }
+
+  const pin = prompt('Введите ПИН-код мастера:');
+  if (!pin) return;
+
+  const badge = document.getElementById('adminBadge');
+  badge.classList.remove('hidden');
+  badge.innerText = 'Проверка...';
+
+  try {
+    const url = state.settings.gasUrl || SCRIPT_URL;
+
+    const data = await new Promise((resolve, reject) => {
+      const callback = 'karnaPinCb_' + Date.now();
+      const script = document.createElement('script');
+
+      const cleanup = () => {
+        clearTimeout(timer);
+        script.remove();
+        delete window[callback];
+      };
+
+      const timer = setTimeout(() => {
+        cleanup();
+        reject(new Error('Нет ответа от сервера'));
+      }, 15000);
+
+      window[callback] = (result) => {
+        cleanup();
+        resolve(result);
+      };
+
+      script.onerror = () => {
+        cleanup();
+        reject(new Error('Ошибка загрузки'));
+      };
+
+      script.src = url +
+        '?action=verifyPin&pin=' +
+        encodeURIComponent(pin) +
+        '&callback=' + callback;
+
+      document.head.appendChild(script);
+    });
+
+    if (!data.success) {
+      badge.classList.add('hidden');
+      alert('Неверный ПИН-код!');
+      return;
+    }
+
+    isAdmin = true;
+    document.getElementById('clientView').classList.add('hidden');
+    document.getElementById('adminView').classList.remove('hidden');
+    badge.innerText = 'Режим Мастера (Админ)';
+    renderAllAdmin();
+
+  } catch (e) {
+    badge.classList.add('hidden');
+    alert('Ошибка соединения с сервером.');
+    console.error(e);
+  }
+}
 
   function switchAdminTab(tabName, btn) {
     ['Schedule', 'Clients', 'Inventory', 'Finance'].forEach(t => {
