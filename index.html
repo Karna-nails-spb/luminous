@@ -278,8 +278,9 @@
 
     <!-- ВКЛАДКА 3: СКЛАД И ЗАКУПКИ -->
     <div id="tabInventory" class="hidden">
-      <div class="card">
-        <div class="card-title script-font">Себестоимость 1 процедуры</div>
+      <div class="card" style="display:none;">
+        <div class="card-title script-font">Старые настройки себестоимости</div>
+        <p style="font-size:11px; color:var(--muted); margin-bottom:10px;">Для новых расчётов используется каталог ниже. Эти прежние настройки сохранены для совместимости.</p>
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
           <div>
             <label>Одноразовый набор (пилка, баф, пакет), ₽:</label>
@@ -298,6 +299,17 @@
             <input type="number" id="costGift" value="50" onchange="saveSettings()">
           </div>
         </div>
+      </div>
+
+      <!-- Каталог и остатки материалов -->
+      <div class="card">
+        <div class="card-title script-font">Склад: материалы и остатки</div>
+        <p style="font-size:12px; color:var(--muted); margin-bottom:12px;">
+          Цена указана за упаковку. Остатки — в штуках/мл. Все 18 позиций начинают с нуля.
+          Нормы расхода можно менять для каждой услуги. Многоразовые инструменты не списываются автоматически.
+        </p>
+        <button class="btn" onclick="addInventoryItem()" style="margin-bottom:12px;">+ Добавить материал</button>
+        <div id="inventoryCatalog"></div>
       </div>
 
       <div class="card">
@@ -397,7 +409,172 @@
   let selectedClientSlot = '';
   let isAdmin = false;
 
+  // ===== СКЛАД: НАЧАЛЬНЫЙ КАТАЛОГ И УЧЁТ =====
+  // Остаток: в штуках или миллилитрах. Цена упаковки хранится точно, без округления.
+  const INVENTORY_DEFAULTS = [
+    ['kraft','Крафт-пакеты',100,250,'шт', {common:1}],
+    ['brush','Щёточки для маникюра',10,160,'шт',{common:1}],
+    ['buff','Бафы',10,97,'шт',{common:1}],
+    ['degreaser','Обезжириватель',1000,560,'мл',{common:3}],
+    ['wipes','Безворсовые салфетки',600,287,'шт',{common:10}],
+    ['file100','Пилка 100 грит',100,547,'шт',{common:1}],
+    ['file180','Пилка 180 грит',25,253,'шт',{common:1}],
+    ['sticks','Апельсиновые палочки',350,297,'шт',{common:1}],
+    ['bits','Набор фрез',1,1385,'набор',{common:0}],
+    ['cutbit','Фреза для выпиливания',1,537,'шт',{common:0}],
+    ['top','Топ',15,488,'мл',{coat:0.5,ext:0.5}],
+    ['base','База',15,487,'мл',{coat:0.5}],
+    ['primer','Праймер для ногтей',15,668,'мл',{coat:0.2,ext:0.2}],
+    ['gel','Гель для наращивания',15,469,'мл',{ext:2,repair:0.2}],
+    ['forms','Верхние формы (набор)',1,361,'набор',{common:0}],
+    ['polish','Лак',15,469,'мл',{coat:0.5,ext:0.5,french:0.2,design:0.2}],
+    ['remover','Ремувер для кутикулы',15,195,'мл',{common:0.5}],
+    ['oil','Масло для кутикулы',15,210,'мл',{common:0.2}]
+  ];
+  const INVENTORY_SERVICES = ['coat','ext','clean','french','repair','design'];
+
+  function ensureInventory() {
+    if (!Array.isArray(state.inventory)) {
+      state.inventory = INVENTORY_DEFAULTS.map(([id,name,packSize,packPrice,unit,norms]) => ({
+        id,name,packSize,packPrice,unit,stock:0,norms:{...norms}
+      }));
+    }
+    // Старые базы могут не содержать склада; уже созданный каталог не перезаписываем.
+  }
+
+  function inventoryUsage(serviceIds) {
+    ensureInventory();
+    const ids = Array.isArray(serviceIds) ? serviceIds : [];
+    const hasMain = ids.some(x => ['coat','ext','clean'].includes(x));
+    return state.inventory.map(item => {
+      const norms = item.norms || {};
+      let qty = hasMain ? (Number(norms.common) || 0) : 0;
+      ids.forEach(id => { qty += Number(norms[id]) || 0; });
+      return {item, qty:Math.round(qty * 1000) / 1000};
+    }).filter(x => x.qty > 0);
+  }
+
+  function inventoryMaterialCost(serviceIds) {
+    return inventoryUsage(serviceIds).reduce((sum,{item,qty}) =>
+      sum + qty * (Number(item.packPrice) / Number(item.packSize)), 0);
+  }
+
+  function stockFormat(v) {
+    return (Math.round((Number(v)||0)*1000)/1000).toLocaleString('ru-RU',{maximumFractionDigits:3});
+  }
+  function escapeInventoryText(str) {
+    return String(str??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+  }
+  function inventoryItemById(id) { ensureInventory(); return state.inventory.find(x=>x.id===id); }
+
+  function renderInventory() {
+    ensureInventory();
+    const box = document.getElementById('inventoryCatalog');
+    if (!box) return;
+    box.innerHTML = state.inventory.map(item => {
+      const pricePerUnit = Number(item.packPrice)/Number(item.packSize);
+      const estimatedValue = (Number(item.stock)||0)*pricePerUnit;
+      const unit = escapeInventoryText(item.unit);
+      return `<div class="appt-item" style="margin-bottom:9px;">
+        <div style="display:flex;justify-content:space-between;gap:8px;align-items:start;">
+          <b style="font-size:13px;">${escapeInventoryText(item.name)}</b>
+          <b style="font-size:12px;color:${Number(item.stock)<0?'var(--danger)':'var(--accent-dark)'};white-space:nowrap;">${stockFormat(item.stock)} ${unit}</b>
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin:6px 0;">
+          ${stockFormat(item.packSize)} ${unit} / упаковка · ${stockFormat(item.packPrice)} ₽ / упаковка<br>
+          Цена за ${unit}: ${Math.ceil(pricePerUnit)} ₽ (округлённая) · Стоимость остатка ≈ ${Math.ceil(estimatedValue)} ₽
+        </div>
+        <div style="display:flex;gap:5px;flex-wrap:wrap;">
+          <button class="btn btn-outline btn-sm" onclick="setInventoryStock('${item.id}')">Остаток</button>
+          <button class="btn btn-outline btn-sm" onclick="restockInventory('${item.id}')">Закупить</button>
+          <button class="btn btn-outline btn-sm" onclick="editInventoryItem('${item.id}')">Изменить</button>
+          <button class="btn btn-outline btn-sm" onclick="editInventoryNorms('${item.id}')">Нормы</button>
+          <button class="btn btn-outline btn-sm" style="color:var(--danger);" onclick="removeInventoryItem('${item.id}')">Удалить</button>
+        </div>
+      </div>`;
+    }).join('') || '<p style="font-size:12px;">Материалов пока нет</p>';
+  }
+
+  function askInventoryNumber(label,oldValue,allowZero=true) {
+    const input = prompt(label,String(oldValue));
+    if (input===null) return null;
+    const val = Number(input.trim().replace(',','.'));
+    if (!input.trim() || !Number.isFinite(val) || val<0 || (!allowZero && val<=0)) {
+      alert('Введите корректное неотрицательное число' + (allowZero?'':' больше нуля'));
+      return null;
+    }
+    return Math.round(val*1000)/1000;
+  }
+  function addInventoryItem() {
+    if (!isAdmin) return;
+    ensureInventory();
+    const name = prompt('Название нового материала:');
+    if (name===null) return;
+    if (!name.trim()) {alert('Введите название');return;}
+    const unitInput = prompt('Единица измерения (шт, мл, набор):','шт');
+    if (unitInput===null) return;
+    const unit=unitInput.trim();
+    if (!unit || !/^[а-яёa-z0-9 ]{1,15}$/i.test(unit)) {alert('Некорректная единица измерения');return;}
+    const packSize=askInventoryNumber('Сколько единиц в упаковке?',1,false);
+    if(packSize===null)return;
+    const packPrice=askInventoryNumber('Стоимость упаковки, ₽:',0);
+    if(packPrice===null)return;
+    state.inventory.push({id:'custom_'+Date.now()+'_'+Math.floor(Math.random()*100000),name:name.trim(),packSize,packPrice,unit,stock:0,norms:{}});
+    saveState();renderInventory();
+  }
+  function editInventoryItem(id) {
+    if (!isAdmin) return;
+    const item=inventoryItemById(id); if(!item)return;
+    const name=prompt('Название материала:',item.name);if(name===null)return;
+    if(!name.trim()){alert('Название не может быть пустым');return;}
+    const packSize=askInventoryNumber('Количество в упаковке ('+item.unit+'):',item.packSize,false);
+    if(packSize===null)return;
+    const packPrice=askInventoryNumber('Цена упаковки, ₽:',item.packPrice);
+    if(packPrice===null)return;
+    item.name=name.trim();item.packSize=packSize;item.packPrice=packPrice;
+    saveState();renderAllAdmin();
+  }
+  function setInventoryStock(id) {
+    if (!isAdmin)return;
+    const item=inventoryItemById(id);if(!item)return;
+    const value=askInventoryNumber('Фактический остаток: '+item.name+' ('+item.unit+'):',Math.max(0,Number(item.stock)||0));
+    if(value===null)return;
+    item.stock=value;saveState();renderAllAdmin();
+  }
+  function restockInventory(id) {
+    if(!isAdmin)return;
+    const item=inventoryItemById(id);if(!item)return;
+    const packs=askInventoryNumber('Сколько упаковок купили? '+item.name,1,false);
+    if(packs===null)return;
+    const total=askInventoryNumber('Фактическая сумма покупки, ₽:',Math.round(packs*item.packPrice*100)/100);
+    if(total===null)return;
+    if(!confirm('Добавить '+stockFormat(packs*item.packSize)+' '+item.unit+' на склад и записать расход '+total+' ₽?'))return;
+    item.stock=Math.round(((Number(item.stock)||0)+packs*item.packSize)*1000)/1000;
+    state.expenses.unshift({id:Date.now(),title:'Закупка: '+item.name,amount:total,cat:'Материалы (склад)',date:new Date().toISOString().slice(0,10)});
+    saveState();renderAllAdmin();
+  }
+  function removeInventoryItem(id) {
+    if(!isAdmin)return;
+    const item=inventoryItemById(id);if(!item)return;
+    if(!confirm('Удалить материал «'+item.name+'» из каталога? Остаток и нормы будут потеряны.'))return;
+    state.inventory=state.inventory.filter(x=>x.id!==id);
+    saveState();renderAllAdmin();
+  }
+  function editInventoryNorms(id) {
+    if(!isAdmin)return;
+    const item=inventoryItemById(id);if(!item)return;
+    const updated={...(item.norms||{})};
+    const labels=[['common','На одну основную процедуру (один раз)'],...SERVICES.map(s=>[s.id,'Дополнительно: '+s.name])];
+    for(const [key,label] of labels) {
+      const val=askInventoryNumber(item.name+' ('+item.unit+'). '+label+':',Number(updated[key])||0);
+      if(val===null)return;
+      updated[key]=val;
+    }
+    item.norms=updated;saveState();renderAllAdmin();
+  }
+
   function saveState() {
+    ensureInventory();
     localStorage.setItem('karna_crm_v2', JSON.stringify(state));
     if (typeof SCRIPT_URL !== 'undefined' && SCRIPT_URL !== "") {
       fetch(SCRIPT_URL, {
@@ -437,15 +614,13 @@
     const loyalty = getLoyaltyInfo(totalStamps);
 
     let baseSum = 0;
-    let matCost = Number(state.settings.costDisposable || 65);
+    // Средняя себестоимость по точной стоимости упаковки и нормам склада.
+    const matCost = inventoryMaterialCost(serviceIds);
 
     serviceIds.forEach(id => {
       const s = SERVICES.find(x => x.id === id);
       if (!s) return;
       baseSum += (priceMode === 'old' ? s.oldPrice : s.price);
-      if (s.matType === 'gel') matCost += Number(state.settings.costGel || 85);
-      if (s.matType === 'ext') matCost += Number(state.settings.costExt || 160);
-      if (s.matType === 'addon') matCost += 15;
     });
 
     const discountRub = Math.round(baseSum * (loyalty.discountPercent / 100));
@@ -705,6 +880,7 @@ async function toggleAdminMode() {
     renderAdminSchedule();
     renderAdminClients();
     renderAdminExpenses();
+    renderInventory();
     renderAdminFinance();
   }
 
@@ -752,6 +928,14 @@ async function toggleAdminMode() {
   function completeAppt(id) {
     const appt = state.appointments.find(a => a.id === id);
     if (!appt || appt.status === 'completed') return;
+    ensureInventory();
+    const used = inventoryUsage(appt.serviceIds);
+    const shortages = used.filter(({item,qty}) => Number(item.stock)<qty).map(({item})=>item.name);
+    if(shortages.length && !confirm('Некоторых материалов недостаточно на складе: '+shortages.join(', ')+'.\nЕсли продолжить, остаток станет отрицательным. Провести визит?'))return;
+    // Списание только при первом завершении записи.
+    used.forEach(({item,qty}) => {item.stock=Math.round(((Number(item.stock)||0)-qty)*1000)/1000;});
+    appt.stockDeducted = true;
+    appt.materialCostAtCompletion = Math.round(inventoryMaterialCost(appt.serviceIds)*100)/100;
     appt.status = 'completed';
     if (!state.clients[appt.phone]) {
       state.clients[appt.phone] = { name: appt.name, phone: appt.phone, visits: 0, bonusStamps: 0, formula: '' };
@@ -1015,6 +1199,7 @@ function deleteClient(phone) {
       const data = await res.json();
       if (data && data.appointments) {
         state = data;
+        ensureInventory();
         saveState();
         renderClientSlots();
         renderClientLoyalty();
@@ -1063,6 +1248,7 @@ syncToCloud();
   }
 
   window.onload = () => {
+    ensureInventory();
     const today = new Date().toISOString().slice(0,10);
     document.getElementById('clientDate').value = today;
     document.getElementById('admDate').value = today;
