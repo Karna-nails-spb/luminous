@@ -139,6 +139,13 @@ label { font-size: 12px; font-weight: 600; color: var(--muted); display: block; 
   padding: 12px; border-radius: 10px; margin-bottom: 10px; border: 1px solid #f0d5da; border-left-width: 4px;
 }
 .appt-item.completed { border-left-color: var(--green); background: #f4fbf5; }
+.booking-day { border:1px solid #f0d5da; border-radius:10px; margin-bottom:10px; overflow:hidden; background:#fff; }
+.booking-day > summary { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:12px; cursor:pointer; color:var(--accent-dark); font-weight:700; background:#fff5f7; }
+.booking-day > summary::marker { color:var(--accent-dark); }
+.booking-day-count { font-size:12px; color:var(--muted); font-weight:600; white-space:nowrap; }
+.booking-day-list { padding:10px 10px 0; }
+.booking-day-list .appt-item { margin-bottom:10px; }
+
 .badge { padding: 3px 7px; border-radius: 6px; font-size: 10px; font-weight: 700; }
 .badge-bonus { background: #ffe0e6; color: var(--accent-dark); }
 .badge-profit { background: #e8f5e9; color: var(--green); }
@@ -183,7 +190,7 @@ label { font-size: 12px; font-weight: 600; color: var(--muted); display: block; 
 .appointment-details { font-size:12px; color:var(--muted); margin:4px 0; }
 .appointment-note { font-size:11px; background:#fff; padding:4px 8px; border-radius:6px; margin:4px 0; }
 .appointment-footer { display:flex; justify-content:space-between; align-items:center; margin-top:8px; flex-wrap:wrap; gap:6px; }
-.compact-actions { display:flex; gap:6px; }
+.compact-actions { display:flex; gap:6px; flex-wrap:wrap; }
 .complete-appointment-button { background:var(--green); }
 .payment-status { font-size:11px; color:var(--green); font-weight:700; }
 .danger-button { color:var(--danger); border-color:var(--danger); }
@@ -193,3 +200,22 @@ label { font-size: 12px; font-weight: 600; color: var(--muted); display: block; 
 .expense-category { color:var(--muted); font-size:11px; }
 .expense-amount { color:var(--danger); font-weight:600; }
 .text-accent { color:var(--accent-dark); }
+
+/* Портфолио: одинаково удобно смотреть снимки на телефоне и компьютере. */
+.gallery-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; margin-top:16px; }
+.gallery-tile { position:relative; min-width:0; overflow:hidden; background:#fff9fa; border:1px solid #efd9dd; border-radius:14px; }
+.gallery-image-button { position:relative; width:100%; aspect-ratio:1; display:block; border:0; padding:0; cursor:pointer; background:#f8e8eb; overflow:hidden; }
+.gallery-image { position:absolute; inset:0; display:block; width:100%; height:100%; object-fit:cover; opacity:0; transition:opacity .2s ease, transform .2s ease; }
+.gallery-image.loaded { opacity:1; }
+.gallery-image-button:hover .gallery-image { transform:scale(1.035); }
+.gallery-placeholder { position:absolute; inset:0; display:grid; place-items:center; height:100%; color:#aa8087; font-size:13px; padding:8px; }
+.gallery-caption { padding:9px 10px; margin:0; font-size:12px; color:var(--accent-dark); overflow-wrap:anywhere; }
+.gallery-remove { width:auto; margin:0 10px 10px; padding:6px 10px; font-size:12px; border:1px solid #e0abb4; border-radius:8px; background:white; color:#96394a; cursor:pointer; }
+.gallery-help { font-size:13px; color:var(--muted); line-height:1.5; }
+.gallery-empty { grid-column:1/-1; padding:20px; text-align:center; color:var(--muted); font-size:13px; background:#fff9fa; border-radius:12px; }
+.gallery-lightbox { border:0; border-radius:16px; padding:20px; max-width:min(94vw,880px); max-height:92vh; background:#fff; box-shadow:0 12px 45px #310d1e40; }
+.gallery-lightbox::backdrop { background:#220911d9; }
+.gallery-lightbox img { display:block; max-width:100%; max-height:72vh; margin:auto; object-fit:contain; }
+.gallery-lightbox p { margin:12px 25px 0; text-align:center; font-size:14px; color:var(--accent-dark); }
+.gallery-lightbox-close { position:absolute; top:6px; right:8px; width:32px; height:32px; border:0; border-radius:50%; background:#f7e7eb; color:var(--accent-dark); cursor:pointer; }
+@media (max-width:430px) { .nav-tab { font-size:10px; } }

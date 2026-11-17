@@ -2,13 +2,28 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
+  <meta name="referrer" content="no-referrer">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>karna.nails — Онлайн-запись и CRM</title>
   <link href="https://fonts.googleapis.com/css2?family=Marck+Script&family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css">
-  <script src="app.js" defer></script>
+  <link rel="stylesheet" href="styles.css?v=portfolio-classic-1">
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <script src="app.js?v=portfolio-1" defer></script>
 </head>
 <body>
+<dialog id="adminLoginDialog">
+  <form method="dialog">
+    <h2>Вход мастера через Google</h2>
+    <p>Выберите разрешённый аккаунт Антона или Карины.</p>
+    <div id="googleSignInButton" aria-label="Вход через Google"></div>
+    <button class="btn btn-outline" value="cancel">Отмена</button>
+  </form>
+</dialog>
+<dialog id="galleryLightbox" class="gallery-lightbox">
+  <form method="dialog"><button class="gallery-lightbox-close" aria-label="Закрыть">✕</button></form>
+  <img id="galleryLargeImage" alt="Пример работы мастера">
+  <p id="galleryLargeCaption"></p>
+</dialog>
 
 <header>
   <h1 class="script-font">karna.nails</h1>
@@ -25,10 +40,10 @@
     <!-- Шаг 1: Проверка карты лояльности по телефону -->
     <div class="card">
       <div class="card-title script-font">Ваша карта лояльности</div>
-      <label>Введите телефон, чтобы проверить свои щиты и скидку:</label>
+      <label>Телефон для записи:</label>
       <input type="tel" id="clientPhoneCheck" placeholder="+7 (999) 000-00-00" data-input-action="renderClientLoyalty">
       <div id="clientLoyaltyStatus" class="loyalty-status">
-        Введите номер — на 3-й визит скидка -10%!
+        Щиты и скидку проверит мастер.
       </div>
       <div class="shields-grid" id="clientShieldsGrid"></div>
     </div>
@@ -42,6 +57,7 @@
     <!-- Шаг 3: Выбор даты и свободного времени -->
     <div class="card">
       <div class="card-title script-font">2. Дата и свободное время</div>
+      <button class="btn btn-outline" data-action="syncFromCloud">Обновить расписание</button>
       <label>Выберите дату визита:</label>
       <input type="date" id="clientDate" data-change-action="renderClientSlots">
       <label>Свободные окошки:</label>
@@ -61,6 +77,11 @@
       </div>
 
       <button class="btn" data-action="submitClientBooking">Записаться онлайн</button>
+    </div>
+
+    <div class="card gallery-card hidden" id="clientGalleryCard">
+      <div class="card-title script-font">Примеры наших работ</div>
+      <div class="gallery-grid" id="clientGalleryGrid"></div>
     </div>
   </div>
 
@@ -198,7 +219,7 @@
         <div class="card-title script-font">Финансы и Чистая прибыль</div>
         <div class="stat-row">
           <div class="stat-box">
-            <div class="metric-label">Выручка (по записям)</div>
+            <div class="metric-label">Выручка (проведённые визиты)</div>
             <div class="stat-val" id="finGross">0 ₽</div>
           </div>
           <div class="stat-box">
@@ -221,12 +242,27 @@
       <div class="card">
         <div class="card-title script-font">Связь с Google Таблицей</div>
         <label>URL веб-приложения Google Apps Script:</label>
-        <input type="url" id="gasUrlInput" placeholder="https://script.google.com/macros/s/.../exec" data-change-action="saveSettings">
+        <input type="url" id="gasUrlInput" readonly placeholder="Адрес задан в app.js">
         <div class="action-row">
           <button class="btn btn-outline flex-fill" data-action="syncFromCloud">🔄 Загрузить из Таблицы</button>
           <button class="btn flex-fill" data-action="syncToCloud">☁️ Выгрузить в Таблицу</button>
         </div>
         <p id="syncStatus" class="sync-status"></p>
+      </div>
+    </div>
+
+    <!-- ГАЛЕРЕЯ МАСТЕРА -->
+    <div id="tabGallery" class="hidden">
+      <div class="card">
+        <div class="card-title script-font">📸 Мои работы</div>
+        <p class="gallery-help">Добавленные фотографии увидят посетители сайта. Файл хранится отдельно от клиентской базы.</p>
+        <label for="galleryPhotoFile">Фотография (JPG, PNG или WebP):</label>
+        <input type="file" id="galleryPhotoFile" accept="image/jpeg,image/png,image/webp">
+        <label for="galleryPhotoCaption">Подпись (необязательно):</label>
+        <input type="text" id="galleryPhotoCaption" maxlength="120" placeholder="Например: нежный френч">
+        <button class="btn" data-action="uploadGalleryPhoto">+ Добавить фотографию</button>
+        <p id="galleryUploadStatus" class="sync-status" role="status"></p>
+        <div class="gallery-grid" id="adminGalleryGrid"></div>
       </div>
     </div>
 
@@ -236,6 +272,7 @@
       <button class="nav-tab" data-action="switchAdminTab" data-tab="Clients">🛡️<span>Карты (10)</span></button>
       <button class="nav-tab" data-action="switchAdminTab" data-tab="Inventory">💅<span>Склад</span></button>
       <button class="nav-tab" data-action="switchAdminTab" data-tab="Finance">💰<span>Прибыль</span></button>
+      <button class="nav-tab" data-action="switchAdminTab" data-tab="Gallery">📸<span>Фото</span></button>
     </div>
 
   </div>

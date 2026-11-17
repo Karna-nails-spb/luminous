@@ -1,5 +1,6 @@
 // Karna Nails: состояние, расчёты, синхронизация и события интерфейса.
-const SCRIPT_URL="https://script.google.com/macros/s/AKfycbzAot_sRubAV7ATLG-o3G1oN8aQoFIt29aSk1B4wSLAVOaL9knpJFL4EHlviX2vFpA98w/exec";
+const GOOGLE_CLIENT_ID="625823076976-h393alfat9afn1k239udolvna9i8je1q.apps.googleusercontent.com";
+const SCRIPT_URL="https://script.google.com/macros/s/AKfycbyHKb4QKnoBrtZPRBL8necjn8G0iuEo6W49OyRk2omf8ghS4HLGVEjt_E2cKOkla24eJw/exec";
 // ==================== БАЗОВЫЕ ДАННЫЕ ПРАЙСА ====================
 const SERVICES = [
   { id: 'coat', name: 'Маникюр с покрытием', price: 2000, oldPrice: 1650, dur: '2 ч', matType: 'gel' },
@@ -10,7 +11,9 @@ const SERVICES = [
   { id: 'design', name: '+ Дизайн (от 1 ногтя)', price: 100, oldPrice: 50, dur: '+15 мин', matType: 'addon' }
 ];
 
-let state = JSON.parse(localStorage.getItem('karna_crm_v2')) || {
+// Never load personal data from the old public browser cache.
+try { localStorage.removeItem('karna_crm_v2'); } catch (_) {}
+let state = {
   appointments: [],
   clients: {},
   expenses: [],
@@ -19,7 +22,82 @@ let state = JSON.parse(localStorage.getItem('karna_crm_v2')) || {
 
 let selectedClientServices = ['coat'];
 let selectedClientSlot = '';
+let lastClientDate = '';
 let isAdmin = false;
+
+let adminToken='', revision='', dirty=false, blocked=false, uiBusy=false, publicReady=false;
+const ADMIN_ACTIONS = new Set(['saveScheduleForDate','addAdminBooking','addInventoryItem','addExpense','setInventoryStock','restockInventory','editInventoryItem','editInventoryNorms','removeInventoryItem','completeAppt','editAppointmentPayment','deleteAppt','giveOldClientBonus','editClient','deleteClient','saveSettings','uploadGalleryPhoto','unpublishGalleryPhoto']);
+const API_ERRORS = {
+  UNAUTHORIZED:'Нет доступа или сеанс истёк. Войдите снова.', SETUP_REQUIRED:'На сервере ещё не настроен новый пароль мастера.',
+  LOGIN_LIMIT:'Слишком много попыток входа. Повторите через 15 минут.', CONFLICT:'База уже изменилась. Загрузите свежие данные и повторите изменение.',
+  DATE_OUT_OF_RANGE:'Онлайн-запись доступна только на текущий и следующий месяц.',
+  SLOT_TAKEN:'Это время уже занято. Выберите другое.', SLOT_UNAVAILABLE:'Это время отсутствует в расписании.', PAST_SLOT:'Нельзя записаться на прошедшее время.',
+  INVALID_BOOKING:'Проверьте данные записи и длину комментария (до 1000 символов).', INVALID_APPOINTMENT:'Проверьте дату, время, телефон и услуги записей.',
+  INVALID_CLIENT:'Проверьте имена, телефоны, визиты и щиты клиентов.', INVALID_SCHEDULE:'В расписании нужны уникальные часы в формате ЧЧ:ММ.',
+  DATABASE_TOO_LARGE:'База достигла допустимого размера ячейки. Изменение не сохранено.', BOOKING_LIMIT:'Слишком много записей с этого номера. Свяжитесь с мастером.',
+  BUSY:'Сервер занят. Повторите действие позже.'
+};
+function salonNow() {
+  const parts = new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Moscow',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(new Date());
+  return parts.replace(',', '');
+}
+function clientBookingWindow() {
+  const today=salonNow().slice(0,10);
+  const [year,month]=today.slice(0,7).split('-').map(Number);
+  const lastDay=new Date(Date.UTC(year,month+1,0)).toISOString().slice(0,10);
+  return {today,lastDay};
+}
+function dateOpenForClient(date) {
+  const window=clientBookingWindow();
+  return !!date && date>=window.today && date<=window.lastDay;
+}
+function showSync(text) { const el=document.getElementById('syncStatus'); if(el) el.textContent=text; if(isAdmin) document.getElementById('adminBadge').textContent=text; }
+async function api(action, fields={}) {
+  const controller=new AbortController(), timer=setTimeout(()=>controller.abort(),35000);
+  try {
+    const response=await fetch(action==='public'?SCRIPT_URL+'?action=public':SCRIPT_URL, action==='public' ?
+      {signal:controller.signal,credentials:'omit',cache:'no-store',redirect:'follow'} :
+      {method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({action,...fields}),signal:controller.signal,credentials:'omit',redirect:'follow'});
+    if(!response.ok) throw new Error('HTTP');
+    const result=await response.json();
+    if(typeof result.ok!=='boolean') throw new Error('PROTOCOL');
+    if(!result.ok) { const error=new Error(API_ERRORS[result.error] || 'Сервер отклонил запрос: '+result.error); error.code=result.error; throw error; }
+    return result;
+  } catch(error) {
+    if(error.code) throw error;
+    const uncertain=new Error('Нет подтверждения сервера. Результат неизвестен. Для записи повторите те же данные; мастер — сначала загрузите базу заново.');
+    uncertain.code='NETWORK'; throw uncertain;
+  } finally { clearTimeout(timer); }
+}
+function clearAdmin() {
+  adminToken=''; revision=''; isAdmin=false; dirty=false; blocked=false; publicReady=false;
+  state={appointments:[],clients:{},expenses:[],settings:{}};
+  document.getElementById('adminView').classList.add('hidden');
+  document.getElementById('clientView').classList.remove('hidden');
+  document.getElementById('adminBadge').classList.add('hidden');
+  for(const id of ['adminAppointmentsList','adminClientsList','expensesList','inventoryCatalog','finGross','finNetOp','finExpenses','finCashFlow']) {
+    const node=document.getElementById(id); if(node) node.textContent='';
+  }
+  for (const id of ['admClientName','admClientPhone','admDate','admTime','adminScheduleSlots']) { const node=document.getElementById(id); if(node) node.value=''; }
+  renderClientSlots(); renderClientLoyalty(); renderGallery();
+}
+async function runUI(action, work) {
+  if(uiBusy) return;
+  const mutation=ADMIN_ACTIONS.has(action);
+  if(mutation && (!isAdmin || !adminToken)) { alert('Войдите как мастер.'); return; }
+  if(mutation && blocked) { alert('Сначала нажмите «Загрузить из Таблицы».'); return; }
+  const before=mutation?JSON.stringify(state):null;
+  uiBusy=true;
+  try {
+    await work();
+    if(mutation && dirty) await syncToCloud();
+  } catch(error) {
+    if(mutation) { state=JSON.parse(before); dirty=false; blocked=true; renderAllAdmin(); }
+    if(error.code==='UNAUTHORIZED' && adminToken) clearAdmin();
+    showSync(error.message); alert(error.message);
+  } finally { uiBusy=false; }
+}
+
 
 // ===== СКЛАД: НАЧАЛЬНЫЙ КАТАЛОГ И УЧЁТ =====
 // Остаток: в штуках или миллилитрах. Цена упаковки хранится точно, без округления.
@@ -186,16 +264,9 @@ function editInventoryNorms(id) {
 }
 
 function saveState() {
+  if (!isAdmin || !adminToken) throw new Error('Войдите как мастер.');
   ensureInventory();
-  localStorage.setItem('karna_crm_v2', JSON.stringify(state));
-  if (typeof SCRIPT_URL !== 'undefined' && SCRIPT_URL !== "") {
-    fetch(SCRIPT_URL, {
-      method: 'POST',
-      mode: 'no-cors',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(state)
-    }).catch(error => console.error('Ошибка синхронизации:', error));
-  }
+  dirty = true;
 }
 
 function cleanPhone(p) {
@@ -244,6 +315,26 @@ function calculateVisitMath(serviceIds, phone, priceMode = 'new') {
   return { baseSum, discountRub, finalPrice, matCost, giftCost, taxSelfEmployed, netProfit, loyalty };
 }
 
+// Optional actual payment is stored per appointment, never as a client discount.
+function hasManualPayment(appt) {
+  return typeof appt.paidAmount === 'number' && Number.isFinite(appt.paidAmount)
+    && appt.paidAmount >= 0 && appt.paidAmount <= 1000000;
+}
+function withActualPayment(math, amount) {
+  const finalPrice = Math.round(amount * 100) / 100;
+  const taxSelfEmployed = Math.round(finalPrice * 0.04);
+  const netProfit = finalPrice - (Number(math.matCost) || 0)
+    - (Number(math.giftCost) || 0) - taxSelfEmployed;
+  return {...math, finalPrice, taxSelfEmployed, netProfit, paidManually:true};
+}
+function appointmentMath(appt) {
+  if (appt.status === 'completed' && appt.financialSnapshot) return appt.financialSnapshot;
+  const result = calculateVisitMath(appt.serviceIds, appt.phone, appt.priceMode);
+  // Старые визиты не имеют сохранённой цены: не выдаём оценку за чек.
+  if (appt.status === 'completed') result.legacyEstimate = true;
+  return hasManualPayment(appt) ? withActualPayment(result, appt.paidAmount) : result;
+}
+
 function renderClientServices() {
   const grid = document.getElementById('clientServicesGrid');
   grid.innerHTML = SERVICES.map(s => {
@@ -275,34 +366,33 @@ function toggleClientService(id) {
 }
 
 function renderClientLoyalty() {
-  const rawPhone = document.getElementById('clientPhoneCheck').value;
-  const normPhone = cleanPhone(rawPhone);
-  const client = state.clients[normPhone] || { visits: 0, bonusStamps: 0 };
-  const stamps = ((client.visits || 0) + (client.bonusStamps || 0)) % 10;
-  const loyalty = getLoyaltyInfo((client.visits || 0) + (client.bonusStamps || 0));
-
-  document.getElementById('clientLoyaltyStatus').innerText =
-    normPhone.length >= 11 ? `${loyalty.label} (Отмечено щитов: ${stamps}/10)` : 'Введите свой номер для проверки накопленных щитов';
-
+  document.getElementById('clientLoyaltyStatus').textContent = 'Щиты и скидку проверит мастер. Здесь показаны правила бонусной карты.';
   const labels = ['1', '2', '-10%', '4', '-20%', '6', '7', '🎁', '🎁', '-30%'];
-  document.getElementById('clientShieldsGrid').innerHTML = labels.map((text, idx) => {
-    let cls = '';
-    if (idx < stamps) cls = 'done';
-    else if (idx === stamps) cls = 'next';
-    return `<div class="shield ${cls}"><span>${idx < stamps ? '✓' : text}</span></div>`;
-  }).join('');
-
+  document.getElementById('clientShieldsGrid').innerHTML = labels.map(text => `<div class="shield"><span>${text}</span></div>`).join('');
   updateClientSummary();
 }
 
-// === ИДЕАЛЬНО РАБОЧАЯ ОТРИСОВКА СЛОТОВ ДЛЯ КЛИЕНТА ===
 function renderClientSlots() {
   const container = document.getElementById('clientSlotsGrid'); // <-- Ошибка была здесь в ID!
   if (!container) return;
   container.innerHTML = '';
 
-  const selectedDate = document.getElementById('clientDate').value;
+  const input=document.getElementById('clientDate');
+  const window=clientBookingWindow();
+  input.min=window.today;
+  input.max=window.lastDay;
+  const selectedDate=input.value;
+  if (selectedDate!==lastClientDate) {
+    selectedClientSlot='';
+    lastClientDate=selectedDate;
+  }
   if (!selectedDate) return;
+  if (!dateOpenForClient(selectedDate)) {
+    container.textContent='Выберите дату в текущем или следующем месяце.';
+    updateClientSummary();
+    return;
+  }
+  if (!publicReady && !isAdmin) { container.textContent = 'Расписание не загружено. Нажмите «Обновить расписание».'; return; }
 
   let baseSlots = [];
 
@@ -324,13 +414,14 @@ function renderClientSlots() {
     const btn = document.createElement('button');
     btn.className = 'slot-btn';
 
-    if (isBooked) {
+    if (isBooked || selectedDate + ' ' + time <= salonNow()) {
       btn.disabled = true; // Кнопка блокируется, если время занято
     } else {
       if (selectedClientSlot === time) {
         btn.classList.add('selected'); // Подсвечиваем, если клиент выбрал это время
       }
       btn.addEventListener('click', () => {
+        if (uiBusy) return;
         selectedClientSlot = time;
         renderClientSlots(); // Обновляем экран после клика
       });
@@ -344,142 +435,119 @@ function renderClientSlots() {
 }
 
 function updateClientSummary() {
-  const phone = document.getElementById('clientPhoneCheck').value;
-  const dateVal = document.getElementById('clientDate').value;
-  const math = calculateVisitMath(selectedClientServices, phone, 'new');
-  const names = selectedClientServices.map(id => SERVICES.find(s => s.id === id)?.name).join(', ');
-
+  const date = document.getElementById('clientDate').value;
+  const services = SERVICES.filter(s=>selectedClientServices.includes(s.id));
+  const total = services.reduce((sum,s)=>sum+s.price,0);
   document.getElementById('clientSummaryBox').innerHTML = `
-    <div><b>Услуги:</b> ${names || 'Не выбрано'}</div>
-    <div><b>Дата и время:</b> ${dateVal} в ${selectedClientSlot || '—'}</div>
-    <div><b>Бонус по карте:</b> <span class="loyalty-label">${math.loyalty.label}</span></div>
-    <div class="summary-total"><b>Итого к оплате: ${math.finalPrice} ₽</b> ${math.discountRub > 0 ? `<s class="summary-original-price">${math.baseSum} ₽</s>` : ''}</div>
-  `;
+    <div><b>Услуги:</b> ${escapeInventoryText(services.map(s=>s.name).join(', '))}</div>
+    <div><b>Дата и время:</b> ${escapeInventoryText(date)} в ${escapeInventoryText(selectedClientSlot || '—')}</div>
+    <div class="summary-total"><b>До скидки: ${escapeInventoryText(total)} ₽</b></div>
+    <div>Личную скидку и бонусы уточнит мастер.</div>`;
 }
 
 async function submitClientBooking() {
-  const name = document.getElementById('clientName').value.trim();
-  const phone = cleanPhone(document.getElementById('clientPhoneCheck').value);
-  const date = document.getElementById('clientDate').value;
-  const note = document.getElementById('clientNote').value.trim();
-
-  if (!name || phone.length < 11) { alert('Пожалуйста, укажите ваше имя и корректный номер телефона!'); return; }
-  if (!selectedClientSlot) { alert('Выберите свободное время!'); return; }
-
-  if (state.settings.gasUrl) {
-    document.getElementById('clientSummaryBox').innerHTML = '<i>Синхронизация с базой... Пожалуйста, подождите.</i>';
-    try {
-      const res = await fetch(state.settings.gasUrl);
-      const cloudData = await res.json();
-      if (cloudData && cloudData.appointments) { state = cloudData; }
-    } catch (e) { console.error('Ошибка синхронизации', e); }
-  }
-
-  const isBooked = state.appointments.some(a => a.date === date && a.time === selectedClientSlot && a.status !== 'cancelled');
-  if (isBooked) {
-    alert('Извините, это время только что заняли. Пожалуйста, выберите другое.');
-    renderClientSlots();
-    return;
-  }
-
-  if (!state.clients[phone]) {
-    state.clients[phone] = { name, phone, visits: 0, bonusStamps: 0, formula: '' };
-  } else {
-    state.clients[phone].name = name;
-  }
-
-  const newAppt = {
-    id: Date.now(), name, phone, date, time: selectedClientSlot,
-    serviceIds: [...selectedClientServices], priceMode: 'new', status: 'booked', note
+  const booking = {
+    name: document.getElementById('clientName').value.trim(),
+    phone: cleanPhone(document.getElementById('clientPhoneCheck').value),
+    date: document.getElementById('clientDate').value,
+    time: selectedClientSlot,
+    note: document.getElementById('clientNote').value.trim(),
+    serviceIds: [...selectedClientServices]
   };
-
-  state.appointments.push(newAppt);
-  saveState();
-
-  if (state.settings.gasUrl) {
-     await syncToCloud();
+  if (!booking.name || !/^\+\d{10,15}$/.test(booking.phone) || !booking.time || !booking.date) {
+    alert('Укажите имя, телефон, дату и свободное время.'); return;
   }
-
-  alert(`Спасибо, ${name}! Вы успешно записаны на ${date} в ${selectedClientSlot}.`);
-  selectedClientSlot = ''; // Сбрасываем выбранное время
-  renderClientSlots();
+  if (!dateOpenForClient(booking.date)) {
+    alert('Онлайн-запись доступна только на текущий и следующий месяц.'); return;
+  }
+  if (!publicReady) throw new Error('Сначала обновите расписание.');
+  const fingerprint = JSON.stringify(booking);
+  // Persist only a hash and random request ID, never name, phone or note.
+  const digest = await crypto.subtle.digest('SHA-256',new TextEncoder().encode(fingerprint));
+  const key = Array.from(new Uint8Array(digest),n=>n.toString(16).padStart(2,'0')).join('');
+  let pending;
+  try { pending = JSON.parse(sessionStorage.getItem('karna_pending_booking')); } catch (_) {}
+  if (!pending || pending.key!==key) pending = {key,id:crypto.randomUUID()};
+  try { sessionStorage.setItem('karna_pending_booking',JSON.stringify(pending)); } catch (_) {}
+  const result = await api('book',{booking,requestId:pending.id});
+  try { sessionStorage.removeItem('karna_pending_booking'); } catch (_) {}
+  alert(`Спасибо, ${booking.name}! Сервер подтвердил запись на ${booking.date} в ${booking.time}.`);
+  selectedClientSlot = '';
+  // A refresh failure cannot change an already confirmed booking into a failure.
+  try { await syncFromCloud(); } catch (_) { publicReady=false; renderClientSlots(); }
 }
 
+function askAdminGoogleCode() {
+  const dialog=document.getElementById('adminLoginDialog');
+  if (!window.google?.accounts?.oauth2?.initCodeClient) {
+    throw new Error('Вход Google ещё не загрузился. Проверьте интернет и обновите страницу.');
+  }
+  return new Promise((resolve,reject)=>{
+    let settled=false;
+    const finish=(code,error)=>{
+      if(settled) return;
+      settled=true;
+      dialog.removeEventListener('close',onCancel);
+      if(dialog.open) dialog.close();
+      if(error) reject(error); else resolve(code);
+    };
+    const onCancel=()=>finish(null);
+    dialog.addEventListener('close',onCancel,{once:true});
+    dialog.showModal();
+    const box=document.getElementById('googleSignInButton');
+    box.replaceChildren();
+    const button=document.createElement('button');
+    button.type='button';
+    button.className='btn';
+    button.textContent='Войти через Google';
+    button.addEventListener('click',()=>{
+      button.disabled=true;
+      try {
+        const client=google.accounts.oauth2.initCodeClient({
+          client_id:GOOGLE_CLIENT_ID,
+          scope:'openid email profile',
+          ux_mode:'popup',
+          callback:response=>{
+            if(response?.code) finish(response.code);
+            else finish(null,new Error('Google не предоставил код входа.'));
+          },
+          error_callback:error=>{
+            if(error?.type==='popup_closed') {button.disabled=false; return;}
+            finish(null,new Error('Не удалось открыть окно Google. Попробуйте ещё раз.'));
+          }
+        });
+        client.requestCode({prompt:'select_account'});
+      } catch(error) {finish(null,error);}
+    });
+    box.append(button);
+  });
+}
 
 async function toggleAdminMode() {
-if (isAdmin) {
-  isAdmin = false;
-  document.getElementById('adminView').classList.add('hidden');
-  document.getElementById('clientView').classList.remove('hidden');
-  document.getElementById('adminBadge').classList.add('hidden');
-  renderClientSlots();
-  renderClientLoyalty();
-  return;
-}
-
-const pin = prompt('Введите ПИН-код мастера:');
-if (!pin) return;
-
-const badge = document.getElementById('adminBadge');
-badge.classList.remove('hidden');
-badge.innerText = 'Проверка...';
-
-try {
- const url = SCRIPT_URL;
-  const data = await new Promise((resolve, reject) => {
-    const callback = 'karnaPinCb_' + Date.now();
-    const script = document.createElement('script');
-
-    const cleanup = () => {
-      clearTimeout(timer);
-      script.remove();
-      delete window[callback];
-    };
-
-    const timer = setTimeout(() => {
-      cleanup();
-      reject(new Error('Нет ответа от сервера'));
-    }, 15000);
-
-    window[callback] = (result) => {
-      cleanup();
-      resolve(result);
-    };
-
-    script.onerror = () => {
-      cleanup();
-      reject(new Error('Ошибка загрузки'));
-    };
-
-    script.src = url +
-      '?action=verifyPin&pin=' +
-      encodeURIComponent(pin) +
-      '&callback=' + callback;
-
-    document.head.appendChild(script);
-  });
-
-  if (!data.success) {
-    badge.classList.add('hidden');
-    alert('Неверный ПИН-код!');
+  if (isAdmin) {
+    try { await api('logout',{token:adminToken}); }
+    finally { clearAdmin(); await syncFromCloud(); }
     return;
   }
-
-  isAdmin = true;
-  document.getElementById('clientView').classList.add('hidden');
-  document.getElementById('adminView').classList.remove('hidden');
-  badge.innerText = 'Режим Мастера (Админ)';
-  renderAllAdmin();
-
-} catch (e) {
-  badge.classList.add('hidden');
-  alert('Ошибка соединения с сервером.');
-  console.error(e);
-}
+  const code = await askAdminGoogleCode();
+  if (!code) return;
+  const login = await api('googleCodeLogin',{code});
+  adminToken = login.token;
+  try {
+    const result = await api('adminRead',{token:adminToken});
+    state=result.data; revision=result.revision; dirty=false; blocked=false;
+    isAdmin=true;
+    ensureInventory();
+    document.getElementById('clientView').classList.add('hidden');
+    document.getElementById('adminView').classList.remove('hidden');
+    document.getElementById('adminBadge').classList.remove('hidden');
+    document.getElementById('adminBadge').textContent='Режим мастера';
+    renderAllAdmin();
+  } catch (error) { clearAdmin(); throw error; }
 }
 
 function switchAdminTab(tabName, btn) {
-  ['Schedule', 'Clients', 'Inventory', 'Finance'].forEach(t => {
+  ['Schedule', 'Clients', 'Inventory', 'Finance', 'Gallery'].forEach(t => {
     document.getElementById('tab' + t).classList.add('hidden');
   });
   document.getElementById('tab' + tabName).classList.remove('hidden');
@@ -494,6 +562,7 @@ function renderAllAdmin() {
   renderAdminExpenses();
   renderInventory();
   renderAdminFinance();
+  renderGallery();
 }
 
 function showAllDates() {
@@ -512,28 +581,47 @@ function renderAdminSchedule() {
     return;
   }
 
-  list.innerHTML = appts.map(a => {
-    const math = calculateVisitMath(a.serviceIds, a.phone, a.priceMode);
+  const renderAppointment = a => {
+    const math = appointmentMath(a);
     const srvNames = a.serviceIds.map(id => SERVICES.find(s => s.id === id)?.name).join(', ');
     const isDone = a.status === 'completed';
+    const moneyLabel = isDone ? 'Получено' : 'К оплате';
+    const manualPaymentLabel = hasManualPayment(a) ? ' • сумма указана мастером' : '';
 
     return `
       <div class="appt-item ${isDone ? 'completed' : ''}">
         <div class="item-heading">
-          <b>📅 ${a.date} в ${a.time} — ${a.name}</b>
-          <span class="badge badge-profit">Чистыми: +${math.netProfit} ₽</span>
+          <b>📅 ${escapeInventoryText(a.date)} в ${escapeInventoryText(a.time)} — ${escapeInventoryText(a.name)}</b>
+          <span class="badge badge-profit">Чистыми: ${math.netProfit >= 0 ? '+' : ''}${math.netProfit.toFixed(2)} ₽</span>
         </div>
-        <div class="appointment-details">📞 ${a.phone} • ${srvNames}</div>
-        ${a.note ? `<div class="appointment-note">💬 ${a.note}</div>` : ''}
+        <div class="appointment-details">📞 ${escapeInventoryText(a.phone)} • ${srvNames}</div>
+        ${a.note ? `<div class="appointment-note">💬 ${escapeInventoryText(a.note)}</div>` : ''}
         <div class="appointment-footer">
-          <span class="badge badge-bonus">${math.loyalty.label} • К оплате: ${math.finalPrice} ₽</span>
+          <span class="badge badge-bonus">${math.legacyEstimate ? "Оценка: цена старого визита не сохранена" : escapeInventoryText(math.loyalty.label)} • ${moneyLabel}: ${math.finalPrice} ₽${manualPaymentLabel}</span>
           <div class="compact-actions">
             ${!isDone ? `<button class="btn btn-sm complete-appointment-button" data-action="completeAppt" data-appointment-id="${escapeInventoryText(a.id)}">✓ Визит проведен (+щит)</button>` : `<span class="payment-status">✓ Оплачено</span>`}
+            ${a.status !== 'cancelled' ? `<button class="btn btn-outline btn-sm" data-action="editAppointmentPayment" data-appointment-id="${escapeInventoryText(a.id)}">💰 Изменить сумму</button>` : ''}
             <button class="btn btn-outline btn-sm danger-button" data-action="deleteAppt" data-appointment-id="${escapeInventoryText(a.id)}">✕</button>
           </div>
         </div>
       </div>
     `;
+  };
+  // Preserve user-expanded days when the list re-renders after an edit.
+  const expanded=new Map(Array.from(list.querySelectorAll('details.booking-day'),node=>[node.dataset.date,node.open]));
+  const grouped=new Map();
+  appts.forEach(a=>{
+    if (!grouped.has(a.date)) grouped.set(a.date,[]);
+    grouped.get(a.date).push(a);
+  });
+  list.innerHTML=Array.from(grouped,([date,dayAppointments])=>{
+    const defaultOpen=false;
+    const isOpen=!!filterDate || (expanded.has(date)?expanded.get(date):defaultOpen);
+    const dateLabel=date.split('-').reverse().join('.');
+    return `<details class="booking-day" data-date="${escapeInventoryText(date)}" ${isOpen?'open':''}>
+      <summary><span>📅 ${escapeInventoryText(dateLabel)}</span><span class="booking-day-count">Записей: ${dayAppointments.length}</span></summary>
+      <div class="booking-day-list">${dayAppointments.map(renderAppointment).join('')}</div>
+    </details>`;
   }).join('');
 }
 
@@ -544,6 +632,8 @@ function completeAppt(id) {
   const used = inventoryUsage(appt.serviceIds);
   const shortages = used.filter(({item,qty}) => Number(item.stock)<qty).map(({item})=>item.name);
   if(shortages.length && !confirm('Некоторых материалов недостаточно на складе: '+shortages.join(', ')+'.\nЕсли продолжить, остаток станет отрицательным. Провести визит?'))return;
+  // Цена и скидка фиксируются ДО начисления следующего щита.
+  appt.financialSnapshot = appointmentMath(appt);
   // Списание только при первом завершении записи.
   used.forEach(({item,qty}) => {item.stock=Math.round(((Number(item.stock)||0)-qty)*1000)/1000;});
   appt.stockDeducted = true;
@@ -553,6 +643,37 @@ function completeAppt(id) {
     state.clients[appt.phone] = { name: appt.name, phone: appt.phone, visits: 0, bonusStamps: 0, formula: '' };
   }
   state.clients[appt.phone].visits = (state.clients[appt.phone].visits || 0) + 1;
+  saveState();
+  renderAllAdmin();
+}
+
+function editAppointmentPayment(id) {
+  if (!isAdmin) return;
+  const appt = state.appointments.find(a => a.id === id);
+  if (!appt || appt.status === 'cancelled') return;
+  const current = appointmentMath(appt).finalPrice;
+  const input = prompt('Сколько рублей фактически получили за эту запись?\nМожно указать 0, если визит был бесплатным.', String(current));
+  if (input === null) return;
+  const normalized = input.trim().replace(',', '.');
+  if (!/^\d+(?:\.\d{1,2})?$/.test(normalized)) {
+    alert('Укажите сумму в рублях: 500 или 500,50. Отрицательная сумма недопустима.');
+    return;
+  }
+  const amount = Number(normalized);
+  if (!Number.isFinite(amount) || amount > 1000000) {
+    alert('Сумма должна быть от 0 до 1 000 000 ₽.');
+    return;
+  }
+  if (hasManualPayment(appt) && appt.paidAmount === amount) return;
+  // Editing an old completed visit must not deduct stock or award loyalty again.
+  if (appt.status === 'completed') {
+    const hadSnapshot = !!appt.financialSnapshot;
+    const previous = hadSnapshot ? appt.financialSnapshot
+      : calculateVisitMath(appt.serviceIds, appt.phone, appt.priceMode);
+    appt.financialSnapshot = withActualPayment(previous, amount);
+    if (!hadSnapshot) appt.financialSnapshot.legacyEstimate = true;
+  }
+  appt.paidAmount = amount;
   saveState();
   renderAllAdmin();
 }
@@ -580,7 +701,7 @@ function addAdminBooking() {
   });
   saveState();
   renderAllAdmin();
-  alert('Запись добавлена!');
+  
 }
 
 function renderAdminClients() {
@@ -601,11 +722,11 @@ function renderAdminClients() {
     return `
       <div class="appt-item">
         <div class="item-heading">
-          <b>${c.name} (${c.phone})</b>
+          <b>${escapeInventoryText(c.name)} (${escapeInventoryText(c.phone)})</b>
           <button class="btn btn-outline btn-sm" data-action="giveOldClientBonus" data-phone="${escapeInventoryText(c.phone)}">+2 щита (Старичку)</button>
         </div>
         <div class="client-next-visit">
-          Следующий визит: ${loyalty.label} (Всего визитов: ${total})
+          Следующий визит: ${loyalty.label} (Всего визитов: ${escapeInventoryText(total)})
         </div>
         <div class="shields-grid">${shieldsHtml}</div>
         <div class="client-actions">
@@ -705,7 +826,7 @@ state.clients[phone] = updatedClient;
 
 saveState();
 renderAllAdmin();
-alert('Карточка клиента обновлена!');
+
 }
 
 function deleteClient(phone) {
@@ -732,7 +853,7 @@ delete state.clients[phone];
 
 saveState();
 renderAllAdmin();
-alert('Карточка клиента удалена!');
+
 }
 
 function addExpense() {
@@ -751,8 +872,8 @@ function renderAdminExpenses() {
   const box = document.getElementById('expensesList');
   box.innerHTML = state.expenses.map(e => `
     <div class="expense-row">
-      <div><b>${e.title}</b> <span class="expense-category">(${e.cat})</span></div>
-      <div class="expense-amount">-${e.amount} ₽</div>
+      <div><b>${escapeInventoryText(e.title)}</b> <span class="expense-category">(${escapeInventoryText(e.cat)})</span></div>
+      <div class="expense-amount">-${escapeInventoryText(e.amount)} ₽</div>
     </div>
   `).join('');
 }
@@ -761,69 +882,50 @@ function renderAdminFinance() {
   let gross = 0;
   let netOp = 0;
   state.appointments.forEach(a => {
-    if (a.status === 'cancelled') return;
-    const m = calculateVisitMath(a.serviceIds, a.phone, a.priceMode);
+    // Запись сама по себе не означает оплату. Учитываем только проведённые визиты.
+    if (a.status !== 'completed') return;
+    const m = appointmentMath(a);
     gross += m.finalPrice;
     netOp += m.netProfit;
   });
   const totalExp = state.expenses.reduce((acc, x) => acc + Number(x.amount || 0), 0);
   const cashFlow = gross - totalExp;
 
-  document.getElementById('finGross').innerText = gross + ' ₽';
-  document.getElementById('finNetOp').innerText = '+' + netOp + ' ₽';
+  const estimate = state.appointments.some(a => a.status === 'completed' && (!a.financialSnapshot || a.financialSnapshot.legacyEstimate)) ? ' (есть оценочные суммы)' : '';
+  document.getElementById('finGross').innerText = gross.toFixed(2) + ' ₽' + estimate;
+  document.getElementById('finNetOp').innerText = (netOp >= 0 ? '+' : '') + netOp.toFixed(2) + ' ₽' + estimate;
   document.getElementById('finExpenses').innerText = '-' + totalExp + ' ₽';
   document.getElementById('finCashFlow').innerText = (cashFlow >= 0 ? '+' : '') + cashFlow + ' ₽';
 }
 
 function saveSettings() {
-  state.settings.costDisposable = Number(document.getElementById('costDisposable').value);
-  state.settings.costGel = Number(document.getElementById('costGel').value);
-  state.settings.costExt = Number(document.getElementById('costExt').value);
-  state.settings.costGift = Number(document.getElementById('costGift').value);
-  state.settings.gasUrl = document.getElementById('gasUrlInput').value.trim();
+  // The server address is fixed in app.js, never taken from database content.
+  for (const id of ['costDisposable','costGel','costExt','costGift']) {
+    const input=document.getElementById(id);
+    if(input) state.settings[id]=Number(input.value);
+  }
   saveState();
-  renderAllAdmin();
 }
 
 async function syncToCloud() {
-  const url = state.settings.gasUrl;
-  if (!url) { alert('Укажите URL скрипта Google Таблицы во вкладке Прибыль!'); return; }
-  document.getElementById('syncStatus').innerText = 'Сохранение в Google Таблицу...';
-  try {
-    await fetch(url, {
-      method: 'POST',
-      mode: 'no-cors',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify(state)
-    });
-    document.getElementById('syncStatus').innerText = '✅ Данные успешно отправлены в Google Таблицу!';
-  } catch (e) {
-    document.getElementById('syncStatus').innerText = 'Ошибка синхронизации: ' + e.message;
-  }
+  if (!isAdmin || !adminToken) throw new Error('Войдите как мастер.');
+  if (blocked) throw new Error('Сначала загрузите свежие данные из таблицы.');
+  if (!dirty) { showSync('Изменений для сохранения нет.'); return; }
+  showSync('Сохранение…');
+  const result=await api('adminSave',{token:adminToken,revision,data:state});
+  revision=result.revision; dirty=false;
+  showSync(result.warning ? 'База сохранена. Не удалось обновить вспомогательные листы.' : '✓ Сохранено в Google Таблице.');
 }
 
 async function syncFromCloud() {
-  const url = state.settings.gasUrl;
-  if (!url) { alert('Укажите URL скрипта Google Таблицы!'); return; }
-  document.getElementById('syncStatus').innerText = 'Загрузка расписания из Таблицы...';
-  try {
-    const res = await fetch(url);
-    const data = await res.json();
-    if (data && data.appointments) {
-      state = data;
-      ensureInventory();
-      saveState();
-      renderClientSlots();
-      renderClientLoyalty();
-      if (isAdmin) renderAllAdmin();
-      document.getElementById('syncStatus').innerText = '✅ Расписание и карты синхронизированы!';
-    }
-  } catch (e) {
-    document.getElementById('syncStatus').innerText = 'Ошибка загрузки: проверьте доступ "Все" в Apps Script.';
-  }
+  const result=isAdmin ? await api('adminRead',{token:adminToken}) : await api('public');
+  state=result.data;
+  if (isAdmin) { revision=result.revision; blocked=false; dirty=false; ensureInventory(); renderAllAdmin(); }
+  publicReady=true;
+  renderClientSlots(); renderClientLoyalty(); renderGallery();
+  showSync('Данные загружены.');
 }
 
-// === ПЛАВАЮЩИЙ ГРАФИК ===
 function loadScheduleForDate() {
   const date = document.getElementById('adminScheduleDate').value;
   if (!date) return;
@@ -851,18 +953,163 @@ function saveScheduleForDate() {
   if (!state.customSchedule) state.customSchedule = {};
   state.customSchedule[date] = slotsArray;
 
-  const status = document.getElementById('scheduleSaveStatus');
-  status.classList.remove('hidden');
-  setTimeout(() => status.classList.add('hidden'), 2000);
+  document.getElementById('scheduleSaveStatus').classList.add('hidden');
 
   saveState();
-  syncToCloud();
+}
+
+
+
+/* Портфолио: в базе только список публикаций, сами фотографии на Drive. */
+const galleryPhotoCache = new Map();
+const galleryPhotoPending = new Map();
+let galleryObserver = null;
+function publishedGallery() {
+  return Array.isArray(state.gallery) ? state.gallery.filter(p=>p && /^[A-Za-z0-9_-]{10,120}$/.test(String(p.id||''))) : [];
+}
+function galleryTile(photo, master) {
+  const id=escapeInventoryText(photo.id);
+  const caption=escapeInventoryText(photo.caption||'');
+  return '<article class="gallery-tile">' +
+    '<button type="button" class="gallery-image-button" data-action="openGalleryPhoto" data-photo-id="'+id+'" aria-label="Посмотреть фотографию '+caption+'">' +
+    '<span class="gallery-placeholder">📷</span>' +
+    '<img class="gallery-image" data-gallery-image="'+id+'" alt="'+caption+'" loading="lazy">' +
+    '</button>' +
+    (caption ? '<p class="gallery-caption">'+caption+'</p>' : '') +
+    (master ? '<button type="button" class="gallery-remove" data-action="unpublishGalleryPhoto" data-photo-id="'+id+'">Убрать из галереи</button>' : '') +
+    '</article>';
+}
+function renderGallery() {
+  const gallery=publishedGallery();
+  const publicCard=document.getElementById('clientGalleryCard');
+  const publicGrid=document.getElementById('clientGalleryGrid');
+  const adminGrid=document.getElementById('adminGalleryGrid');
+  if (!publicCard || !publicGrid || !adminGrid) return;
+  publicCard.classList.toggle('hidden',gallery.length===0);
+  publicGrid.innerHTML=gallery.map(p=>galleryTile(p,false)).join('');
+  adminGrid.innerHTML=gallery.length ? gallery.map(p=>galleryTile(p,true)).join('') :
+    '<p class="gallery-empty">Здесь пока нет фотографий. Добавьте первую работу выше.</p>';
+  if (galleryObserver) galleryObserver.disconnect();
+  const imgs=document.querySelectorAll('[data-gallery-image]');
+  const loadImg=img => {
+    getGalleryPhotoData(img.dataset.galleryImage).then(src=>{
+      if (!img.isConnected) return;
+      img.src=src; img.classList.add('loaded');
+      const placeholder=img.parentElement.querySelector('.gallery-placeholder');
+      if (placeholder) placeholder.classList.add('hidden');
+    }).catch(()=>{
+      if (img.isConnected) img.alt='Не удалось загрузить фото';
+    });
+  };
+  if ('IntersectionObserver' in window) {
+    galleryObserver=new IntersectionObserver(entries=>{
+      entries.forEach(entry=>{
+        if (!entry.isIntersecting) return;
+        galleryObserver.unobserve(entry.target);
+        loadImg(entry.target);
+      });
+    },{rootMargin:'250px'});
+    imgs.forEach(img=>galleryObserver.observe(img));
+  } else imgs.forEach(loadImg);
+}
+async function getGalleryPhotoData(id) {
+  if (galleryPhotoCache.has(id)) return galleryPhotoCache.get(id);
+  if (galleryPhotoPending.has(id)) return galleryPhotoPending.get(id);
+  const task=(async()=>{
+    const response=await fetch(SCRIPT_URL+'?action=photo&id='+encodeURIComponent(id),{
+      credentials:'omit',cache:'no-store',redirect:'follow'
+    });
+    if (!response.ok) throw new Error('Фото временно недоступно');
+    const result=await response.json();
+    if (!result.ok || !['image/jpeg','image/png','image/webp'].includes(result.mime) ||
+        typeof result.data!=='string' || result.data.length>1300000 ||
+        !/^[A-Za-z0-9+/]+={0,2}$/.test(result.data)) throw new Error('Не удалось загрузить фотографию');
+    const src='data:'+result.mime+';base64,'+result.data;
+    galleryPhotoCache.set(id,src);
+    return src;
+  })();
+  galleryPhotoPending.set(id,task);
+  try { return await task; } finally { galleryPhotoPending.delete(id); }
+}
+async function openGalleryPhoto(id) {
+  if (!publishedGallery().some(p=>p.id===id)) return;
+  const photo=publishedGallery().find(p=>p.id===id);
+  const dialog=document.getElementById('galleryLightbox');
+  const img=document.getElementById('galleryLargeImage');
+  img.removeAttribute('src');
+  document.getElementById('galleryLargeCaption').textContent=photo.caption||'';
+  if (!dialog.open) dialog.showModal();
+  try { img.src=await getGalleryPhotoData(id); }
+  catch (error) { dialog.close(); throw error; }
+}
+async function prepareGalleryImage(file) {
+  if (!file || !['image/jpeg','image/png','image/webp'].includes(file.type) || file.size>15000000)
+    throw new Error('Выберите JPG, PNG или WebP размером до 15 МБ.');
+  let image;
+  if (typeof createImageBitmap==='function') image=await createImageBitmap(file);
+  else {
+    image=await new Promise((resolve,reject)=>{
+      const url=URL.createObjectURL(file),img=new Image();
+      img.onload=()=>{URL.revokeObjectURL(url);resolve(img);};
+      img.onerror=()=>{URL.revokeObjectURL(url);reject(new Error('Не удалось прочитать изображение'));};
+      img.src=url;
+    });
+  }
+  if (!image.width || !image.height || image.width>10000 || image.height>10000)
+    throw new Error('Неподдерживаемый размер фотографии');
+  const canvas=document.createElement('canvas');
+  const scale=Math.min(1,1200/Math.max(image.width,image.height));
+  canvas.width=Math.max(1,Math.round(image.width*scale));
+  canvas.height=Math.max(1,Math.round(image.height*scale));
+  const ctx=canvas.getContext('2d');
+  ctx.fillStyle='#fff';ctx.fillRect(0,0,canvas.width,canvas.height);
+  ctx.drawImage(image,0,0,canvas.width,canvas.height);
+  let data=canvas.toDataURL('image/jpeg',0.78).split(',')[1];
+  if (data.length>1250000) {
+    canvas.width=Math.max(1,Math.round(canvas.width*0.7));
+    canvas.height=Math.max(1,Math.round(canvas.height*0.7));
+    ctx.fillStyle='#fff';ctx.fillRect(0,0,canvas.width,canvas.height);
+    ctx.drawImage(image,0,0,canvas.width,canvas.height);
+    data=canvas.toDataURL('image/jpeg',0.65).split(',')[1];
+  }
+  if (image.close) image.close();
+  if (data.length>1250000) throw new Error('Фотография слишком большая. Выберите другой снимок.');
+  return data;
+}
+async function uploadGalleryPhoto() {
+  const input=document.getElementById('galleryPhotoFile');
+  const file=input.files[0];
+  if (!file) { alert('Сначала выберите фотографию.'); return; }
+  const status=document.getElementById('galleryUploadStatus');
+  status.textContent='Подготавливаю фотографию…';
+  const data=await prepareGalleryImage(file);
+  status.textContent='Загружаю в галерею…';
+  const caption=document.getElementById('galleryPhotoCaption').value.trim();
+  const result=await api('uploadGalleryPhoto',{token:adminToken,revision,mime:'image/jpeg',data,caption});
+  revision=result.revision;
+  state.gallery=[result.photo,...publishedGallery()];
+  input.value='';
+  document.getElementById('galleryPhotoCaption').value='';
+  status.textContent='✓ Фотография опубликована.';
+  renderGallery();
+}
+async function unpublishGalleryPhoto(id) {
+  if (!confirm('Убрать фотографию из галереи? Файл останется в закрытой папке Drive.')) return;
+  const result=await api('unpublishGalleryPhoto',{token:adminToken,revision,id});
+  revision=result.revision;
+  state.gallery=publishedGallery().filter(p=>p.id!==id);
+  galleryPhotoCache.delete(id);
+  renderGallery();
+  document.getElementById('galleryUploadStatus').textContent='Фотография убрана из галереи.';
 }
 
 function initApp() {
   ensureInventory();
-  const today = new Date().toISOString().slice(0,10);
-  document.getElementById('clientDate').value = today;
+  const today = salonNow().slice(0,10);
+  const clientDate=document.getElementById('clientDate');
+  clientDate.value=today;
+  clientDate.min=today;
+  clientDate.max=clientBookingWindow().lastDay;
   document.getElementById('admDate').value = today;
   document.getElementById('admService').innerHTML = SERVICES.map(s => `<option value="${s.id}">${s.name} (${s.price} ₽)</option>`).join('');
 
@@ -874,7 +1121,8 @@ function initApp() {
   renderClientServices();
   renderClientLoyalty();
   renderClientSlots();
-  if (state.settings.gasUrl) syncFromCloud();
+  renderGallery();
+  syncFromCloud().catch(error=>{ publicReady=false; renderClientSlots(); alert(error.message); });
 }
 
 // Делегирование сохраняет работу кнопок после перерисовки innerHTML.
@@ -898,10 +1146,14 @@ function bindUIEvents() {
     editInventoryNorms: element => editInventoryNorms(element.dataset.itemId),
     removeInventoryItem: element => removeInventoryItem(element.dataset.itemId),
     completeAppt: element => completeAppt(Number(element.dataset.appointmentId)),
+    editAppointmentPayment: element => editAppointmentPayment(Number(element.dataset.appointmentId)),
     deleteAppt: element => deleteAppt(Number(element.dataset.appointmentId)),
     giveOldClientBonus: element => giveOldClientBonus(element.dataset.phone),
     editClient: element => editClient(element.dataset.phone),
-    deleteClient: element => deleteClient(element.dataset.phone)
+    deleteClient: element => deleteClient(element.dataset.phone),
+    uploadGalleryPhoto,
+    unpublishGalleryPhoto: element => unpublishGalleryPhoto(element.dataset.photoId),
+    openGalleryPhoto: element => openGalleryPhoto(element.dataset.photoId)
   };
   const changeActions = {
     renderClientSlots,
@@ -917,7 +1169,7 @@ function bindUIEvents() {
       if (!element) return;
       const action = element.getAttribute(attribute);
       if (Object.prototype.hasOwnProperty.call(actions, action)) {
-        actions[action](element);
+        runUI(action, () => actions[action](element));
       }
     });
   };
