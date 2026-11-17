@@ -1,6 +1,6 @@
 // Karna Nails: состояние, расчёты, синхронизация и события интерфейса.
 const GOOGLE_CLIENT_ID="625823076976-h393alfat9afn1k239udolvna9i8je1q.apps.googleusercontent.com";
-const SCRIPT_URL="https://script.google.com/macros/s/AKfycbyHKb4QKnoBrtZPRBL8necjn8G0iuEo6W49OyRk2omf8ghS4HLGVEjt_E2cKOkla24eJw/exec";
+const SCRIPT_URL="https://script.google.com/macros/s/AKfycbzAot_sRubAV7ATLG-o3G1oN8aQoFIt29aSk1B4wSLAVOaL9knpJFL4EHlviX2vFpA98w/exec";
 // ==================== БАЗОВЫЕ ДАННЫЕ ПРАЙСА ====================
 const SERVICES = [
   { id: 'coat', name: 'Маникюр с покрытием', price: 2000, oldPrice: 1650, dur: '2 ч', matType: 'gel' },
