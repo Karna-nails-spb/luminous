@@ -20,6 +20,8 @@ let state = {
   settings: { costDisposable: 65, costGel: 85, costExt: 160, costGift: 50, gasUrl: '' }
 };
 
+// Preserve the original fallback hours only when no date-specific schedule exists.
+const DEFAULT_SCHEDULE_SLOTS = ['10:00', '12:30', '15:00', '17:30', '20:00'];
 let selectedClientServices = ['coat'];
 let selectedClientSlot = '';
 let lastClientDate = '';
@@ -92,7 +94,13 @@ async function runUI(action, work) {
     await work();
     if(mutation && dirty) await syncToCloud();
   } catch(error) {
-    if(mutation) { state=JSON.parse(before); dirty=false; blocked=true; renderAllAdmin(); }
+    if(mutation) {
+      state=JSON.parse(before); dirty=false;
+      // A conflict or an unknown network result needs a reload. Invalid user
+      // input is safe to correct without blocking the whole master interface.
+      blocked = !error.code || error.code === 'CONFLICT' || error.code === 'NETWORK';
+      renderAllAdmin();
+    }
     if(error.code==='UNAUTHORIZED' && adminToken) clearAdmin();
     showSync(error.message); alert(error.message);
   } finally { uiBusy=false; }
@@ -372,11 +380,93 @@ function renderClientLoyalty() {
   updateClientSummary();
 }
 
-function renderClientSlots() {
-  const container = document.getElementById('clientSlotsGrid'); // <-- Ошибка была здесь в ID!
-  if (!container) return;
-  container.innerHTML = '';
+// Read legacy times without rewriting the primary database.
+// 18.00 -> 18:00, 9:30 -> 09:30; other tokens are not bookable.
+function normalizeScheduleTime(value) {
+  if (typeof value !== 'string') return null;
+  const match=/^(\d{1,2})[:.](\d{2})$/.exec(value.trim());
+  if (!match) return null;
+  const h=Number(match[1]), m=Number(match[2]);
+  return h<=23 && m<=59 ? String(h).padStart(2,'0')+':'+String(m).padStart(2,'0') : null;
+}
+function readableStoredSlots(raw) {
+  if (!Array.isArray(raw)) return [];
+  const result=[];
+  for (let i=0;i<raw.length;i++) {
+    let time=normalizeScheduleTime(raw[i]);
+    // Historic typo "19,00" was saved as the separate strings "19", "00".
+    // Recover only an adjacent, unambiguous hour/minute pair in the view.
+    if (!time && i+1<raw.length && /^\d{1,2}$/.test(String(raw[i]).trim())
+        && /^\d{2}$/.test(String(raw[i+1]).trim())) {
+      time=normalizeScheduleTime(String(raw[i]).trim()+':'+String(raw[i+1]).trim());
+      if (time) i++;
+    }
+    if (time && !result.includes(time)) result.push(time);
+  }
+  return result;
+}
+function scheduleSlotsForDate(date) {
+  if (!date) return [];
+  const schedules=state.customSchedule || {};
+  return Object.prototype.hasOwnProperty.call(schedules,date)
+    ? readableStoredSlots(schedules[date]) : [...DEFAULT_SCHEDULE_SLOTS];
+}
+function timeIsBooked(date,time) {
+  return (state.appointments||[]).some(a=>a.date===date && a.status!=='cancelled'
+    && normalizeScheduleTime(a.time)===time);
+}
+// Accept comma/semicolon/newline/space separators and historical dot times.
+// Also accepts a dot as separator between full time values: 9:30.12:00.
+function scheduleInputError(message) {
+  const error=new Error(message);
+  error.code='SCHEDULE_INPUT';
+  throw error;
+}
+function parseScheduleInput(raw) {
+  const text=String(raw||'').trim();
+  if (!text || /^(?:нет|выходной)$/i.test(text)) return [];
+  const times=[];
+  const pattern=/\d{1,2}[:.]\d{2}/g;
+  let last=0, match;
+  while ((match=pattern.exec(text))!==null) {
+    const separator=text.slice(last,match.index);
+    if (separator && !/^[,;.\s]+$/.test(separator))
+      scheduleInputError('Разделяйте часы запятой. Пример: 09:30, 12:00, 19:00.');
+    const time=normalizeScheduleTime(match[0]);
+    if (!time) scheduleInputError('Неверное время «'+match[0]+'». Используйте 00:00–23:59.');
+    if (times.includes(time)) scheduleInputError('Время «'+time+'» указано дважды. Уберите повтор.');
+    times.push(time);
+    last=pattern.lastIndex;
+  }
+  if (!times.length || !/^[,;.\s]*$/.test(text.slice(last)))
+    scheduleInputError('Используйте время ЧЧ:ММ через запятую, например 09:30, 12:00, 19:00.');
+  if (times.length>96) scheduleInputError('Слишком много интервалов (максимум 96).');
+  return times;
+}
 
+function refreshAdminTimeOptions() {
+  const select=document.getElementById('admTime');
+  const date=document.getElementById('admDate').value;
+  const selected=select.value;
+  const free=scheduleSlotsForDate(date).filter(time=>!timeIsBooked(date,time));
+  select.replaceChildren();
+  const placeholder=document.createElement('option');
+  placeholder.value='';
+  placeholder.textContent=free.length ? 'Выберите свободное время' : 'На этот день свободных часов нет';
+  select.appendChild(placeholder);
+  free.forEach(time=>{
+    const option=document.createElement('option');
+    option.value=time; option.textContent=time;
+    select.appendChild(option);
+  });
+  select.value=free.includes(selected) ? selected : '';
+  select.disabled=free.length===0;
+}
+
+function renderClientSlots() {
+  const container=document.getElementById('clientSlotsGrid');
+  if (!container) return;
+  container.innerHTML='';
   const input=document.getElementById('clientDate');
   const window=clientBookingWindow();
   input.min=window.today;
@@ -392,46 +482,34 @@ function renderClientSlots() {
     updateClientSummary();
     return;
   }
-  if (!publicReady && !isAdmin) { container.textContent = 'Расписание не загружено. Нажмите «Обновить расписание».'; return; }
-
-  let baseSlots = [];
-
-  // Проверка плавающего графика
-  if (state.customSchedule && state.customSchedule[selectedDate]) {
-    baseSlots = state.customSchedule[selectedDate];
-    if (baseSlots.length === 0) {
-      container.innerHTML = '<div class="day-off">Мастер в этот день не принимает (Выходной)</div>';
-      return;
-    }
-  } else {
-    baseSlots = ['10:00', '12:30', '15:00', '17:30', '20:00'];
+  if (!publicReady && !isAdmin) {
+    container.textContent='Расписание не загружено. Нажмите «Обновить расписание».';
+    return;
   }
-
-  // Отрисовка кнопок времени
-  baseSlots.forEach(time => {
-    const isBooked = (state.appointments || []).some(a => a.date === selectedDate && a.time === time && a.status !== 'cancelled');
-
-    const btn = document.createElement('button');
-    btn.className = 'slot-btn';
-
-    if (isBooked || selectedDate + ' ' + time <= salonNow()) {
-      btn.disabled = true; // Кнопка блокируется, если время занято
-    } else {
-      if (selectedClientSlot === time) {
-        btn.classList.add('selected'); // Подсвечиваем, если клиент выбрал это время
-      }
-      btn.addEventListener('click', () => {
+  const slots=scheduleSlotsForDate(selectedDate);
+  if (!slots.length) {
+    container.innerHTML='<div class="day-off">Мастер в этот день не принимает (Выходной)</div>';
+    updateClientSummary();
+    return;
+  }
+  if (!slots.includes(selectedClientSlot)) selectedClientSlot='';
+  slots.forEach(time=>{
+    const booked=timeIsBooked(selectedDate,time);
+    const btn=document.createElement('button');
+    btn.className='slot-btn';
+    if (booked || selectedDate+' '+time<=salonNow()) btn.disabled=true;
+    else {
+      if (selectedClientSlot===time) btn.classList.add('selected');
+      btn.addEventListener('click',()=>{
         if (uiBusy) return;
-        selectedClientSlot = time;
-        renderClientSlots(); // Обновляем экран после клика
+        selectedClientSlot=time;
+        renderClientSlots();
       });
     }
-
-    btn.innerText = time;
+    btn.innerText=time;
     container.appendChild(btn);
   });
-
-  updateClientSummary(); // Обновляем текст Итога
+  updateClientSummary();
 }
 
 function updateClientSummary() {
@@ -563,6 +641,7 @@ function renderAllAdmin() {
   renderInventory();
   renderAdminFinance();
   renderGallery();
+  refreshAdminTimeOptions();
 }
 
 function showAllDates() {
@@ -685,23 +764,27 @@ function deleteAppt(id) {
 }
 
 function addAdminBooking() {
-  const name = document.getElementById('admClientName').value.trim();
-  const phone = cleanPhone(document.getElementById('admClientPhone').value);
-  const date = document.getElementById('admDate').value;
-  const time = document.getElementById('admTime').value;
-  const srv = document.getElementById('admService').value;
-  const priceMode = document.getElementById('admPriceMode').value;
-
-  if (!name || !phone || !date) { alert('Заполните имя, телефон и дату!'); return; }
+  const name=document.getElementById('admClientName').value.trim();
+  const phone=cleanPhone(document.getElementById('admClientPhone').value);
+  const date=document.getElementById('admDate').value;
+  const time=normalizeScheduleTime(document.getElementById('admTime').value);
+  const srv=document.getElementById('admService').value;
+  const priceMode=document.getElementById('admPriceMode').value;
+  if (!name || !/^\+\d{10,15}$/.test(phone) || !date || !time) {
+    alert('Заполните имя, телефон, дату и выберите свободное время.'); return;
+  }
+  if (!scheduleSlotsForDate(date).includes(time) || timeIsBooked(date,time)) {
+    alert('Это время недоступно или уже занято. Выберите другое.');
+    refreshAdminTimeOptions(); return;
+  }
   if (!state.clients[phone]) {
-    state.clients[phone] = { name, phone, visits: 0, bonusStamps: 0, formula: '' };
+    state.clients[phone]={name,phone,visits:0,bonusStamps:0,formula:''};
   }
   state.appointments.push({
-    id: Date.now(), name, phone, date, time, serviceIds: [srv], priceMode, status: 'booked', note: ''
+    id:Date.now(),name,phone,date,time,serviceIds:[srv],priceMode,status:'booked',note:''
   });
   saveState();
   renderAllAdmin();
-  
 }
 
 function renderAdminClients() {
@@ -927,35 +1010,33 @@ async function syncFromCloud() {
 }
 
 function loadScheduleForDate() {
-  const date = document.getElementById('adminScheduleDate').value;
+  const date=document.getElementById('adminScheduleDate').value;
   if (!date) return;
-
-  if (!state.customSchedule) state.customSchedule = {};
-
-  const slotsInput = document.getElementById('adminScheduleSlots');
-  if (state.customSchedule[date] && state.customSchedule[date].length > 0) {
-    slotsInput.value = state.customSchedule[date].join(', ');
-  } else {
-    slotsInput.value = '';
+  const slotsInput=document.getElementById('adminScheduleSlots');
+  const raw=(state.customSchedule||{})[date];
+  if (!Array.isArray(raw) || raw.length===0 || (raw.length===1 && /^нет$/i.test(raw[0]))) {
+    slotsInput.value=''; return;
   }
+  const valid=readableStoredSlots(raw);
+  // Unknown legacy values are kept visible for manual correction, not erased.
+  const recognized=raw.every((x,i)=>normalizeScheduleTime(x) ||
+    (/^\d{1,2}$/.test(String(x).trim()) && /^\d{2}$/.test(String(raw[i+1]||'').trim())) ||
+    (i>0 && /^\d{2}$/.test(String(x).trim()) && /^\d{1,2}$/.test(String(raw[i-1]||'').trim())));
+  slotsInput.value=(recognized ? valid : raw).join(', ');
 }
 
 function saveScheduleForDate() {
-  const date = document.getElementById('adminScheduleDate').value;
-  if (!date) {
-    alert('Сначала выберите дату!');
-    return;
-  }
-
-  const rawText = document.getElementById('adminScheduleSlots').value;
-  const slotsArray = rawText.split(',').map(s => s.trim()).filter(s => s !== '');
-
-  if (!state.customSchedule) state.customSchedule = {};
-  state.customSchedule[date] = slotsArray;
-
+  const date=document.getElementById('adminScheduleDate').value;
+  if (!date) { alert('Сначала выберите дату!'); return; }
+  const slotsInput=document.getElementById('adminScheduleSlots');
+  const slots=parseScheduleInput(slotsInput.value);
+  if (!state.customSchedule) state.customSchedule={};
+  state.customSchedule[date]=slots;
+  slotsInput.value=slots.join(', ');
   document.getElementById('scheduleSaveStatus').classList.add('hidden');
-
   saveState();
+  refreshAdminTimeOptions();
+  if (document.getElementById('clientDate').value===date) renderClientSlots();
 }
 
 
@@ -1111,6 +1192,7 @@ function initApp() {
   clientDate.min=today;
   clientDate.max=clientBookingWindow().lastDay;
   document.getElementById('admDate').value = today;
+  refreshAdminTimeOptions();
   document.getElementById('admService').innerHTML = SERVICES.map(s => `<option value="${s.id}">${s.name} (${s.price} ₽)</option>`).join('');
 
   if (typeof SCRIPT_URL !== 'undefined' && SCRIPT_URL !== '') {
@@ -1159,6 +1241,7 @@ function bindUIEvents() {
     renderClientSlots,
     loadScheduleForDate,
     renderAdminSchedule,
+    refreshAdminTimeOptions,
     saveSettings
   };
   const inputActions = { renderClientLoyalty };

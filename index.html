@@ -8,7 +8,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Marck+Script&family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css?v=portfolio-classic-1">
   <script src="https://accounts.google.com/gsi/client" async defer></script>
-  <script src="app.js?v=production-v9-20261117" defer></script>
+  <script src="app.js?v=production-v10-20261119" defer></script>
 </head>
 <body>
 <dialog id="adminLoginDialog">
@@ -68,9 +68,9 @@
     <div class="card">
       <div class="card-title script-font">3. Подтверждение записи</div>
       <label>Ваше имя:</label>
-      <input type="text" id="clientName" placeholder="Например, Анна">
+      <input type="text" id="clientName" maxlength="120" placeholder="Например, Анна">
       <label>Комментарий (дизайн, снятие, пожелания):</label>
-      <input type="text" id="clientNote" placeholder="Например: хочу френч или ремонт 1 ногтя">
+      <input type="text" id="clientNote" maxlength="1000" placeholder="Например: хочу френч или ремонт 1 ногтя">
 
       <div id="clientSummaryBox" class="booking-summary">
         Выберите услугу и время выше
@@ -117,17 +117,11 @@
         <div class="form-grid">
           <div>
             <label>Дата:</label>
-            <input type="date" id="admDate">
+            <input type="date" id="admDate" data-change-action="refreshAdminTimeOptions">
           </div>
           <div>
             <label>Время:</label>
-            <select id="admTime">
-              <option value="10:00">10:00</option>
-              <option value="12:30">12:30</option>
-              <option value="15:00">15:00</option>
-              <option value="17:30">17:30</option>
-              <option value="20:00">20:00</option>
-            </select>
+            <select id="admTime"><option value="">Выберите дату и свободное время</option></select>
           </div>
         </div>
         <label>Основная услуга:</label>
